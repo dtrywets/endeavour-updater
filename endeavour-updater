@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# Endeavour / Arch System-Updater – Menü, Installation, Cron
+# Guide: https://forum.endeavouros.com/t/a-complete-idiots-guide-to-endeavour-os-maintenance-update-upgrade/25184
+
+set -euo pipefail
+
+UPDATER_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# shellcheck source=lib/common.sh
+source "$UPDATER_ROOT/lib/common.sh"
+# shellcheck source=lib/maintain.sh
+source "$UPDATER_ROOT/lib/maintain.sh"
+# shellcheck source=lib/cron.sh
+source "$UPDATER_ROOT/lib/cron.sh"
+# shellcheck source=lib/install.sh
+source "$UPDATER_ROOT/lib/install.sh"
+# shellcheck source=lib/menu.sh
+source "$UPDATER_ROOT/lib/menu.sh"
+
+MODE="${EU_MODE:-}"
+CRON_TASK=""
+WITH_CRON=1
+WITH_CRONIE=1
+
+eu_usage() {
+  cat <<EOF
+endeavour-updater – Wartung für Arch Linux / EndeavourOS
+
+Interaktiv (Standard bei Terminal):
+  endeavour-updater              Menü
+  endeavour-updater --menu
+
+Installation:
+  endeavour-updater --install              Install + cronie + Cronjobs (Standard)
+  endeavour-updater --install --no-cron    Ohne Cronjobs und ohne cronie
+  endeavour-updater --install --no-cronie  Cronjobs nur, wenn crontab schon da ist
+  endeavour-updater --uninstall
+  endeavour-updater --status
+
+Cron (Automatisierung, nicht interaktiv):
+  endeavour-updater --cron update        Wöchentlich empfohlen
+  endeavour-updater --cron monthly       Monatlich: Spiegel, -Syyu, Cache, Journal
+  endeavour-updater --cron mirrors       Nur Spiegel + Sync/Update
+  endeavour-updater --cron clean         Nur Bereinigung
+  endeavour-updater --cron-install         cronie + Cronjobs (Standard)
+  endeavour-updater --install-cronie       Nur Paket cronie + Dienst
+  endeavour-updater --cron-remove
+  endeavour-updater --cron-status
+
+Einzelaktionen (Skripte / manuell):
+  endeavour-updater --update
+  endeavour-updater --mirrors
+  endeavour-updater --clean
+  endeavour-updater --orphans
+  endeavour-updater --pacdiff
+  endeavour-updater --full
+
+Optionen:
+  -y, --yes         Keine Rückfragen (für Cron)
+  -n, --dry-run
+  -h, --help
+
+Cron-Zeitplan (bei --cron-install):
+  So 06:00  – Paket-Update
+  1. 07:00  – Spiegel, vollständiger Sync, Journal/Cache
+
+Logs: ~/.config/endeavour-updater/logs/
+
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --menu)        MODE=menu ;;
+      --install)     MODE=install ;;
+      --no-cron)       WITH_CRON=0; WITH_CRONIE=0 ;;
+      --with-cron)     WITH_CRON=1; WITH_CRONIE=1 ;;
+      --no-cronie)     WITH_CRONIE=0 ;;
+      --with-cronie)   WITH_CRONIE=1 ;;
+      --install-cronie) MODE=install-cronie ;;
+      --uninstall)   MODE=uninstall ;;
+      --status)      MODE=status ;;
+      --upgrade)     MODE=upgrade ;;
+      --cron)
+        MODE=cron
+        CRON_TASK="${2:?--cron braucht: update|monthly|mirrors|clean}"
+        shift
+        ;;
+      --cron-install)  MODE=cron-install ;;
+      --cron-remove)   MODE=cron-remove ;;
+      --cron-status)   MODE=cron-status ;;
+      --update)      MODE=update ;;
+      --mirrors)     MODE=mirrors ;;
+      --clean)       MODE=clean ;;
+      --orphans)     MODE=orphans ;;
+      --pacdiff)     MODE=pacdiff ;;
+      --full)        MODE=full ;;
+      -y|--yes)      YES=1; NONINTERACTIVE=1 ;;
+      -n|--dry-run)  DRY_RUN=1 ;;
+      -h|--help)     eu_usage; exit 0 ;;
+      *)
+        die "Unbekannte Option: $1 (endeavour-updater --help)"
+        ;;
+    esac
+    shift
+  done
+}
+
+resolve_mode() {
+  if [[ -n "$MODE" ]]; then
+    return 0
+  fi
+  if is_tty; then
+    MODE=menu
+  else
+    die "Kein TTY – Modus angeben, z. B. --cron update oder --help"
+  fi
+}
+
+run_mode() {
+  ensure_pacman
+  case "$MODE" in
+    menu)
+      menu_main_loop
+      ;;
+    install)
+      install_do
+      [[ "$WITH_CRON" -eq 1 ]] && install_try_cron || true
+      ;;
+    uninstall)
+      install_uninstall
+      ;;
+    status)
+      install_status
+      ;;
+    upgrade)
+      install_upgrade
+      ;;
+    cron)
+      NONINTERACTIVE=1
+      YES=1
+      cron_run_task "$CRON_TASK"
+      ;;
+    cron-install)
+      cron_install_all || exit 1
+      ;;
+    install-cronie)
+      cron_install_cronie || exit 1
+      ;;
+    cron-remove)   cron_remove_all ;;
+    cron-status)   cron_show_status ;;
+    update)
+      maintain_update_packages 0
+      maintain_check_pacnew_reminder
+      ;;
+    mirrors)
+      maintain_mirrors_all
+      maintain_update_packages 1
+      maintain_check_pacnew_reminder
+      ;;
+    clean)
+      maintain_clean_all
+      ;;
+    orphans)
+      maintain_remove_orphans 0
+      ;;
+    pacdiff)
+      maintain_run_pacdiff
+      ;;
+    full)
+      maintain_interactive_full
+      ;;
+    *)
+      die "Interner Modusfehler: $MODE"
+      ;;
+  esac
+}
+
+main() {
+  # Installierte Kopie: Konfiguration nur für Status/Cron-Pfade
+  if [[ -f "$CONFIG_FILE" ]]; then
+    install_load_config 2>/dev/null || true
+  fi
+
+  parse_args "$@"
+  resolve_mode
+  log "Start (Modus: $MODE)"
+  run_mode
+  log "Fertig."
+}
+
+main "$@"
