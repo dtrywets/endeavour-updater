@@ -79,6 +79,20 @@ Aktualisieren nach Git-Pull:
 ./endeavour-updater --upgrade
 ```
 
+## AUR-Paket iacs (IBM i Access)
+
+Das AUR-Paket `iacs` benötigt die ZIP-Datei `IBMiAccess_v1r1.zip` von IBM (kostenlos mit IBMid). yay kann sie nicht automatisch laden; beim Rebuild wird die Datei im Cache gelöscht.
+
+Der Updater speichert die ZIP dauerhaft unter `~/.config/endeavour-updater/aur-sources/iacs/` und baut `iacs` beim Update **nach** dem normalen `yay -Syu` separat. Fehlt die Datei, wird `iacs` übersprungen (andere Pakete werden trotzdem aktualisiert).
+
+```bash
+# Nach Download von IBM:
+endeavour-updater --iacs-import ~/Downloads/IBMiAccess_v1r1.zip
+endeavour-updater --update
+```
+
+Bereits vorhandene Kopien in `~/.cache/yay/iacs/` oder `~/Downloads/` werden beim ersten Lauf automatisch übernommen, sofern die Prüfsumme passt.
+
 ## Abhängigkeiten (optional)
 
 - `yay` – AUR-Updates

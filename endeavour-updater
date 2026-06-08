@@ -8,6 +8,8 @@ UPDATER_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 # shellcheck source=lib/common.sh
 source "$UPDATER_ROOT/lib/common.sh"
+# shellcheck source=lib/aur_sources.sh
+source "$UPDATER_ROOT/lib/aur_sources.sh"
 # shellcheck source=lib/maintain.sh
 source "$UPDATER_ROOT/lib/maintain.sh"
 # shellcheck source=lib/cron.sh
@@ -54,6 +56,7 @@ Einzelaktionen (Skripte / manuell):
   endeavour-updater --orphans
   endeavour-updater --pacdiff
   endeavour-updater --full
+  endeavour-updater --iacs-import <zip>   IBM-Quelle für iacs speichern
 
 Optionen:
   -y, --yes         Keine Rückfragen (für Cron)
@@ -96,6 +99,11 @@ parse_args() {
       --orphans)     MODE=orphans ;;
       --pacdiff)     MODE=pacdiff ;;
       --full)        MODE=full ;;
+      --iacs-import)
+        MODE=iacs-import
+        IACS_IMPORT_SRC="${2:?--iacs-import braucht Pfad zur ZIP-Datei}"
+        shift
+        ;;
       -y|--yes)      YES=1; NONINTERACTIVE=1 ;;
       -n|--dry-run)  DRY_RUN=1 ;;
       -h|--help)     eu_usage; exit 0 ;;
@@ -170,6 +178,9 @@ run_mode() {
       ;;
     full)
       maintain_interactive_full
+      ;;
+    iacs-import)
+      aur_sources_iacs_import "$IACS_IMPORT_SRC"
       ;;
     *)
       die "Interner Modusfehler: $MODE"

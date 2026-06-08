@@ -6,14 +6,18 @@ maintain_update_packages() {
   [[ "$full_sync" -eq 1 ]] && sync=(-Syyu)
 
   if have_cmd yay; then
+    aur_sources_prepare_package_updates
     local yay_flags=("${sync[@]}")
     [[ "$NONINTERACTIVE" -eq 1 || "$YES" -eq 1 ]] && yay_flags+=(--noconfirm)
+    yay_flags+=("${AUR_SOURCES_EXTRA_IGNORE[@]}")
     if [[ "$EUID" -eq 0 && -n "${SUDO_USER:-}" ]]; then
       run sudo -u "$SUDO_USER" -H -- yay "${yay_flags[@]}"
+      aur_sources_run_post_update
       return
     fi
     [[ "$EUID" -eq 0 ]] && warn "yay als root – normaler Benutzer bevorzugt."
     run yay "${yay_flags[@]}"
+    aur_sources_run_post_update
     return
   fi
 
