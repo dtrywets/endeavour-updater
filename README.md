@@ -51,6 +51,8 @@ endeavour-updater --install-cronie
 
 Waisen werden per Cron **nicht** automatisch entfernt (nur im interaktiven Menü mit Bestätigung).
 
+Geschützte Pakete (z. B. `xrdp-git`, `xorgxrdp-git` für RDP) werden bei der Waisen-Bereinigung **nie** entfernt. Weitere Namen in `~/.config/endeavour-updater/orphan-protect` (eine Zeile pro Paket).
+
 Logs: `~/.config/endeavour-updater/logs/`
 
 ## Cron steuern

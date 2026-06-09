@@ -19,6 +19,7 @@ install_load_config() {
 
 install_write_config() {
   mkdir -p "$CONFIG_DIR"
+  maintain_orphan_protect_ensure_template
   cat >"$CONFIG_FILE" <<EOF
 # endeavour-updater – generiert $(date -Iseconds)
 INSTALL_ROOT='$SHARE_DIR'
