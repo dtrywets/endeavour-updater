@@ -97,18 +97,24 @@ Bereits vorhandene Kopien in `~/.cache/yay/iacs/` oder `~/Downloads/` werden bei
 
 ## Cursor IDE und IBM Bob
 
-Der Updater kann **Cursor IDE** und **IBM Bob** (`ibm-bob-bin` aus dem AUR) separat oder zusammen mit dem Paket-Update aktualisieren.
+Der Updater erkennt automatisch, **welche Variante installiert ist**, und wählt die passende Update-Methode:
 
-| Installation | Update-Methode |
-|--------------|----------------|
-| Cursor als AppImage (`~/Applications/cursor.AppImage` o. Ä.) | Offizielle Cursor-API, Download der neuesten AppImage |
-| Cursor als AUR-Paket `cursor-bin` | `yay -S cursor-bin` |
-| IBM Bob als AUR-Paket `ibm-bob-bin` | `yay -S ibm-bob-bin` |
+| Komponente | Erkennung | Update |
+|------------|-----------|--------|
+| Cursor IDE (AppImage) | `.desktop`, `~/Applications/cursor.AppImage` | Cursor-API → AppImage-Download |
+| Cursor IDE (AUR) | `cursor-bin` | `yay -S cursor-bin` |
+| Cursor CLI | `cursor-agent` / `agent` in `~/.local/bin` | `cursor-agent update` |
+| IBM Bob IDE (AUR) | `ibm-bob-bin` | `yay -S ibm-bob-bin` |
+| IBM Bob CLI | `bob` (npm/pnpm/yarn global) | Neueste Version von IBM |
 
 ```bash
-endeavour-updater --cursor      # nur Cursor
-endeavour-updater --ibm-bob     # nur IBM Bob
-endeavour-updater --apps        # beide
+endeavour-updater --cursor              # Cursor IDE + CLI (installiertes)
+endeavour-updater --cursor-cli          # nur Cursor CLI
+endeavour-updater --ibm-bob             # IBM Bob IDE + CLI
+endeavour-updater --ibm-bob-cli         # nur Bob CLI
+endeavour-updater --apps                # alles Erkannte
+endeavour-updater --install-cursor-cli  # Cursor CLI neu installieren
+endeavour-updater --install-bob-cli     # Bob CLI neu installieren
 ```
 
 Bei `--update` und im wöchentlichen Cron werden installierte Zusatz-Anwendungen automatisch mit aktualisiert (abschaltbar in `~/.config/endeavour-updater/extra-apps.conf`: `EXTRA_APPS_WITH_UPDATE=0`).
@@ -119,8 +125,9 @@ Bei einer **bestehenden AppImage-Installation** kann die lokale Version einmalig
 
 ## Abhängigkeiten (optional)
 
-- `yay` – AUR-Updates (Cursor/IBM Bob)
-- `curl` – Cursor AppImage-Updates
+- `yay` – AUR-Updates (Cursor/IBM Bob IDE)
+- `curl` – Cursor AppImage-Updates, CLI-Installation
+- `node` + `npm`/`pnpm`/`yarn` – IBM Bob CLI
 - `reflector` – Arch-Spiegel
 - `eos-rankmirrors` – Endeavour-Spiegel
 - `pacman-contrib` – `paccache`, `pacdiff`

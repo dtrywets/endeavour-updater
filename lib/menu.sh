@@ -62,17 +62,21 @@ menu_apps_sub() {
     echo "── Cursor IDE / IBM Bob ──"
     extra_apps_status
     echo
-    echo "  1) Cursor IDE aktualisieren"
-    echo "  2) IBM Bob aktualisieren"
-    echo "  3) Beide aktualisieren"
-    echo "  4) Zurück"
+    echo "  1) Cursor aktualisieren (IDE + CLI)"
+    echo "  2) IBM Bob aktualisieren (IDE + CLI)"
+    echo "  3) Alles aktualisieren"
+    echo "  4) Cursor CLI installieren"
+    echo "  5) IBM Bob CLI installieren"
+    echo "  6) Zurück"
     echo
     read -r -p "Auswahl: " c
     case "${c:-}" in
       1) extra_apps_cursor_update 1; pause_menu ;;
       2) extra_apps_bob_update 1; pause_menu ;;
       3) extra_apps_update_all 1; pause_menu ;;
-      4) return ;;
+      4) extra_apps_cursor_cli_install; pause_menu ;;
+      5) extra_apps_bob_cli_install; pause_menu ;;
+      6) return ;;
       *) warn "Ungültige Auswahl."; sleep 1 ;;
     esac
   done

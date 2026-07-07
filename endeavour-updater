@@ -59,9 +59,13 @@ Einzelaktionen (Skripte / manuell):
   endeavour-updater --pacdiff
   endeavour-updater --full
   endeavour-updater --iacs-import <zip>   IBM-Quelle für iacs speichern
-  endeavour-updater --cursor              Cursor IDE aktualisieren
-  endeavour-updater --ibm-bob             IBM Bob aktualisieren
-  endeavour-updater --apps                Cursor + IBM Bob aktualisieren
+  endeavour-updater --cursor              Cursor IDE + CLI aktualisieren
+  endeavour-updater --cursor-cli          Nur Cursor CLI (Agent)
+  endeavour-updater --ibm-bob             IBM Bob IDE + CLI aktualisieren
+  endeavour-updater --ibm-bob-cli         Nur IBM Bob CLI (bob)
+  endeavour-updater --apps                Alles (Cursor + Bob, IDE + CLI)
+  endeavour-updater --install-cursor-cli  Cursor CLI installieren
+  endeavour-updater --install-bob-cli      IBM Bob CLI installieren
 
 Optionen:
   -y, --yes         Keine Rückfragen (für Cron)
@@ -110,8 +114,12 @@ parse_args() {
         shift
         ;;
       --cursor)      MODE=cursor ;;
+      --cursor-cli)  MODE=cursor-cli ;;
       --ibm-bob)     MODE=ibm-bob ;;
+      --ibm-bob-cli) MODE=ibm-bob-cli ;;
       --apps)        MODE=apps ;;
+      --install-cursor-cli) MODE=install-cursor-cli ;;
+      --install-bob-cli)    MODE=install-bob-cli ;;
       -y|--yes)      YES=1; NONINTERACTIVE=1 ;;
       -n|--dry-run)  DRY_RUN=1 ;;
       -h|--help)     eu_usage; exit 0 ;;
@@ -192,13 +200,25 @@ run_mode() {
       aur_sources_iacs_import "$IACS_IMPORT_SRC"
       ;;
     cursor)
-      extra_apps_cursor_update 1
+      extra_apps_cursor_update 0
+      ;;
+    cursor-cli)
+      extra_apps_cursor_cli_update 0
       ;;
     ibm-bob)
-      extra_apps_bob_update 1
+      extra_apps_bob_update 0
+      ;;
+    ibm-bob-cli)
+      extra_apps_bob_cli_update 0
       ;;
     apps)
-      extra_apps_update_all 1
+      extra_apps_update_all 0
+      ;;
+    install-cursor-cli)
+      extra_apps_cursor_cli_install
+      ;;
+    install-bob-cli)
+      extra_apps_bob_cli_install
       ;;
     *)
       die "Interner Modusfehler: $MODE"

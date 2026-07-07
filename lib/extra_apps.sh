@@ -1,10 +1,14 @@
-# Zusatz-Anwendungen: Cursor IDE und IBM Bob (AUR / AppImage)
+# Zusatz-Anwendungen: Cursor IDE/CLI und IBM Bob IDE/CLI
 
 : "${EXTRA_APPS_CONFIG:=$CONFIG_DIR/extra-apps.conf}"
 
 CURSOR_AUR_PKG='cursor-bin'
 IBM_BOB_PKG='ibm-bob-bin'
 CURSOR_API_URL='https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable'
+CURSOR_CLI_INSTALL_URL='https://cursor.com/install'
+BOB_CLI_INSTALL_URL='https://bob.ibm.com/download/bobshell.sh'
+BOB_CLI_VERSION_URL='https://s3.us-south.cloud-object-storage.appdomain.cloud/bob-shell/bobshell-version.txt'
+BOB_CLI_BASE_URL='https://s3.us-south.cloud-object-storage.appdomain.cloud/bob-shell'
 
 extra_apps_config_ensure() {
   [[ -f "$EXTRA_APPS_CONFIG" ]] && return 0
@@ -15,6 +19,8 @@ extra_apps_config_ensure() {
 CURSOR_APPIMAGE=
 # Letzte bekannte Cursor-AppImage-Version (wird nach Update gesetzt)
 CURSOR_APPIMAGE_VERSION=
+# Bob CLI: npm, pnpm oder yarn (leer = automatisch erkennen)
+BOB_CLI_PM=
 # Bei --update / Cron mit aktualisieren (1=ja, 0=nein)
 EXTRA_APPS_WITH_UPDATE=1
 EOF
@@ -36,6 +42,16 @@ extra_apps_config_load() {
   source "$EXTRA_APPS_CONFIG"
 }
 
+extra_apps_config_set() {
+  local key="$1" val="$2"
+  extra_apps_config_ensure
+  if grep -q "^${key}=" "$EXTRA_APPS_CONFIG" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$EXTRA_APPS_CONFIG"
+  else
+    echo "${key}=${val}" >>"$EXTRA_APPS_CONFIG"
+  fi
+}
+
 extra_apps_json_field() {
   local json="$1" field="$2"
   printf '%s' "$json" | grep -oP "\"${field}\"\\s*:\\s*\"\\K[^\"]+" | head -1
@@ -51,6 +67,14 @@ extra_apps_run_yay() {
     run sudo -u "$SUDO_USER" -H -- yay "$@"
   else
     run yay "$@"
+  fi
+}
+
+extra_apps_run_user() {
+  if [[ "$EUID" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    run sudo -u "$SUDO_USER" -H -- "$@"
+  else
+    run "$@"
   fi
 }
 
@@ -78,6 +102,8 @@ extra_apps_yay_update_pkg() {
     log "$label ($pkg): bereits aktuell."
   fi
 }
+
+# ── Erkennung ────────────────────────────────────────────────────────────────
 
 extra_apps_cursor_appimage_from_desktop() {
   local f line path
@@ -112,8 +138,10 @@ extra_apps_cursor_appimage_path() {
   return 1
 }
 
-extra_apps_cursor_detect() {
+extra_apps_cursor_ide_detect() {
   if pacman -Qi "$CURSOR_AUR_PKG" &>/dev/null; then
+    echo pacman
+  elif have_cmd cursor && pacman -Qo "$(command -v cursor)" &>/dev/null; then
     echo pacman
   elif extra_apps_cursor_appimage_path >/dev/null; then
     echo appimage
@@ -122,16 +150,72 @@ extra_apps_cursor_detect() {
   fi
 }
 
-extra_apps_bob_detect() {
+extra_apps_cursor_cli_bin() {
+  local c d
+  for c in "$HOME/.local/bin/cursor-agent" "$HOME/.local/bin/agent"; do
+    if [[ -x "$c" ]] && readlink -f "$c" 2>/dev/null | grep -q cursor-agent; then
+      echo "$c"
+      return 0
+    fi
+  done
+  if [[ -d "$HOME/.local/share/cursor-agent/versions" ]]; then
+    for d in $(find "$HOME/.local/share/cursor-agent/versions" -mindepth 1 -maxdepth 1 -type d -name '20*' 2>/dev/null | sort -r); do
+      if [[ -x "$d/cursor-agent" ]]; then
+        echo "$d/cursor-agent"
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
+extra_apps_cursor_cli_detect() {
+  extra_apps_cursor_cli_bin >/dev/null && echo cursor-agent || echo none
+}
+
+extra_apps_bob_ide_detect() {
   if pacman -Qi "$IBM_BOB_PKG" &>/dev/null; then
+    echo pacman
+  elif have_cmd bobide && pacman -Qo "$(command -v bobide)" &>/dev/null 2>&1; then
     echo pacman
   else
     echo none
   fi
 }
 
-extra_apps_cursor_local_version() {
-  local method="$1" app ver
+extra_apps_bob_cli_pm_detect() {
+  local pm
+  extra_apps_config_load
+  if [[ -n "${BOB_CLI_PM:-}" ]]; then
+    echo "$BOB_CLI_PM"
+    return 0
+  fi
+  for pm in npm pnpm yarn; do
+    have_cmd "$pm" || continue
+    if "$pm" list -g --depth=0 2>/dev/null | grep -qi bobshell; then
+      echo "$pm"
+      return 0
+    fi
+  done
+  return 1
+}
+
+extra_apps_bob_cli_detect() {
+  have_cmd bob && echo bob || echo none
+}
+
+extra_apps_profile() {
+  CURSOR_IDE_METHOD="$(extra_apps_cursor_ide_detect)"
+  CURSOR_CLI_METHOD="$(extra_apps_cursor_cli_detect)"
+  BOB_IDE_METHOD="$(extra_apps_bob_ide_detect)"
+  BOB_CLI_METHOD="$(extra_apps_bob_cli_detect)"
+  BOB_CLI_PM="$(extra_apps_bob_cli_pm_detect || true)"
+}
+
+# ── Cursor IDE ───────────────────────────────────────────────────────────────
+
+extra_apps_cursor_ide_version() {
+  local method="$1"
   case "$method" in
     pacman)
       pacman -Qi "$CURSOR_AUR_PKG" 2>/dev/null | awk -F': ' '/^Version/{print $2; exit}' | cut -d- -f1
@@ -145,7 +229,7 @@ extra_apps_cursor_local_version() {
 
 extra_apps_cursor_is_current() {
   local remote_ver="$1" local_ver
-  local_ver="$(extra_apps_cursor_local_version appimage || true)"
+  local_ver="$(extra_apps_cursor_ide_version appimage || true)"
   [[ -n "$local_ver" && -n "$remote_ver" ]] && ! extra_apps_version_lt "$local_ver" "$remote_ver"
 }
 
@@ -154,7 +238,7 @@ extra_apps_cursor_fetch_release() {
   curl -fsSL -A 'Mozilla/5.0 (X11; Linux x86_64)' "$CURSOR_API_URL"
 }
 
-extra_apps_cursor_update_appimage() {
+extra_apps_cursor_ide_update_appimage() {
   local app remote_json remote_ver remote_url local_ver tmp backup
   app="$(extra_apps_cursor_appimage_path)" || {
     log "Kein Cursor-AppImage gefunden – übersprungen."
@@ -172,8 +256,8 @@ extra_apps_cursor_update_appimage() {
     return 1
   }
 
-  local_ver="$(extra_apps_cursor_local_version appimage || true)"
-  log "Cursor AppImage: installiert ${local_ver:-unbekannt}, verfügbar $remote_ver"
+  local_ver="$(extra_apps_cursor_ide_version appimage || true)"
+  log "Cursor IDE (AppImage): installiert ${local_ver:-unbekannt}, verfügbar $remote_ver"
 
   if extra_apps_cursor_is_current "$remote_ver"; then
     log "Cursor AppImage ist bereits aktuell."
@@ -183,12 +267,10 @@ extra_apps_cursor_update_appimage() {
     warn "Cursor-Version lokal unbekannt – automatisches Update übersprungen (interaktiv: --cursor)."
     return 0
   fi
-
   if ! confirm "Cursor AppImage auf $remote_ver aktualisieren?"; then
     log "Cursor-Update abgebrochen."
     return 0
   fi
-
   if [[ "$DRY_RUN" -eq 1 ]]; then
     log "[dry-run] curl → $app ($remote_url)"
     return 0
@@ -209,71 +291,270 @@ extra_apps_cursor_update_appimage() {
   log "Cursor aktualisiert: $app (Backup: $backup)"
 }
 
-extra_apps_cursor_update() {
-  local method install="${1:-0}"
-  method="$(extra_apps_cursor_detect)"
+extra_apps_cursor_ide_install() {
+  if confirm "Cursor IDE ($CURSOR_AUR_PKG) aus dem AUR installieren?"; then
+    extra_apps_yay_update_pkg "$CURSOR_AUR_PKG" 'Cursor IDE' 1
+    return
+  fi
+  if confirm "Stattdessen Cursor AppImage nach ~/Applications/cursor.AppImage laden?"; then
+    mkdir -p "$HOME/Applications"
+    extra_apps_config_set CURSOR_APPIMAGE "$HOME/Applications/cursor.AppImage"
+    extra_apps_cursor_ide_update_appimage
+  fi
+}
+
+extra_apps_cursor_ide_update() {
+  local install="${1:-0}" method
+  method="$(extra_apps_cursor_ide_detect)"
   case "$method" in
-    pacman)
-      extra_apps_yay_update_pkg "$CURSOR_AUR_PKG" 'Cursor IDE' "$install"
-      ;;
-    appimage)
-      extra_apps_cursor_update_appimage
-      ;;
+    pacman) extra_apps_yay_update_pkg "$CURSOR_AUR_PKG" 'Cursor IDE' 0 ;;
+    appimage) extra_apps_cursor_ide_update_appimage ;;
     none)
-      if [[ "$install" -eq 1 ]] && confirm "Cursor IDE ($CURSOR_AUR_PKG) aus dem AUR installieren?"; then
-        extra_apps_yay_update_pkg "$CURSOR_AUR_PKG" 'Cursor IDE' 1
-      elif [[ "$install" -eq 1 ]] && confirm "Stattdessen Cursor AppImage nach ~/Applications/cursor.AppImage laden?"; then
-        mkdir -p "$HOME/Applications"
-        CURSOR_APPIMAGE="$HOME/Applications/cursor.AppImage"
-        extra_apps_config_ensure
-        if grep -q '^CURSOR_APPIMAGE=' "$EXTRA_APPS_CONFIG" 2>/dev/null; then
-          sed -i "s|^CURSOR_APPIMAGE=.*|CURSOR_APPIMAGE=$CURSOR_APPIMAGE|" "$EXTRA_APPS_CONFIG"
-        else
-          echo "CURSOR_APPIMAGE=$CURSOR_APPIMAGE" >>"$EXTRA_APPS_CONFIG"
-        fi
-        extra_apps_cursor_update_appimage
+      if [[ "$install" -eq 1 ]]; then
+        extra_apps_cursor_ide_install
       else
-        log "Cursor IDE nicht gefunden – weder $CURSOR_AUR_PKG noch AppImage."
+        log "Cursor IDE nicht installiert – übersprungen."
       fi
       ;;
   esac
 }
 
+# ── Cursor CLI ───────────────────────────────────────────────────────────────
+
+extra_apps_cursor_cli_version() {
+  local bin ver
+  bin="$(extra_apps_cursor_cli_bin || true)"
+  [[ -n "$bin" ]] || return 1
+  ver="$("$bin" --version 2>/dev/null | head -1 || true)"
+  [[ -n "$ver" ]] && echo "$ver"
+}
+
+extra_apps_cursor_cli_install() {
+  have_cmd curl || { warn "curl fehlt – Cursor CLI kann nicht installiert werden."; return 1; }
+  if ! confirm "Cursor CLI (Agent) installieren?"; then
+    log "Cursor-CLI-Installation abgebrochen."
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] curl $CURSOR_CLI_INSTALL_URL | bash"
+    return 0
+  fi
+  log "Installiere Cursor CLI …"
+  extra_apps_run_user bash -c "curl -fsSL '$CURSOR_CLI_INSTALL_URL' | bash"
+}
+
+extra_apps_cursor_cli_update() {
+  local install="${1:-0}" bin method
+  method="$(extra_apps_cursor_cli_detect)"
+  if [[ "$method" == none ]]; then
+    if [[ "$install" -eq 1 ]]; then
+      extra_apps_cursor_cli_install
+    else
+      log "Cursor CLI nicht installiert – übersprungen."
+    fi
+    return 0
+  fi
+
+  bin="$(extra_apps_cursor_cli_bin)"
+  log "Cursor CLI: installiert $(extra_apps_cursor_cli_version || echo unbekannt)"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] $bin update"
+    return 0
+  fi
+  if ! confirm "Cursor CLI aktualisieren?"; then
+    log "Cursor-CLI-Update abgebrochen."
+    return 0
+  fi
+  log "Aktualisiere Cursor CLI …"
+  extra_apps_run_user "$bin" update
+}
+
+# ── IBM Bob IDE ──────────────────────────────────────────────────────────────
+
+extra_apps_bob_ide_install() {
+  if confirm "IBM Bob IDE ($IBM_BOB_PKG) aus dem AUR installieren?"; then
+    extra_apps_yay_update_pkg "$IBM_BOB_PKG" 'IBM Bob IDE' 1
+  fi
+}
+
+extra_apps_bob_ide_update() {
+  local install="${1:-0}" method
+  method="$(extra_apps_bob_ide_detect)"
+  case "$method" in
+    pacman) extra_apps_yay_update_pkg "$IBM_BOB_PKG" 'IBM Bob IDE' 0 ;;
+    none)
+      if [[ "$install" -eq 1 ]]; then
+        extra_apps_bob_ide_install
+      else
+        log "IBM Bob IDE nicht installiert – übersprungen."
+      fi
+      ;;
+  esac
+}
+
+# ── IBM Bob CLI ──────────────────────────────────────────────────────────────
+
+extra_apps_bob_cli_version() {
+  have_cmd bob || return 1
+  bob --version 2>/dev/null | tail -1 | tr -d '[:space:]'
+}
+
+extra_apps_bob_cli_fetch_version() {
+  have_cmd curl || return 1
+  curl -fsSL "$BOB_CLI_VERSION_URL" | tr -d '[:space:]'
+}
+
+extra_apps_bob_cli_pm_pick() {
+  local pm
+  extra_apps_config_load
+  [[ -n "${BOB_CLI_PM:-}" ]] && { echo "$BOB_CLI_PM"; return 0; }
+  for pm in npm pnpm yarn; do
+    have_cmd "$pm" && { echo "$pm"; return 0; }
+  done
+  return 1
+}
+
+extra_apps_bob_cli_install() {
+  local pm ver url flags=()
+  have_cmd curl || { warn "curl fehlt – Bob CLI kann nicht installiert werden."; return 1; }
+  have_cmd node || { warn "Node.js fehlt – Bob CLI benötigt Node.js ≥ 22.15."; return 1; }
+  pm="$(extra_apps_bob_cli_pm_pick)" || {
+    warn "Kein npm/pnpm/yarn gefunden – Bob CLI kann nicht installiert werden."
+    return 1
+  }
+  if ! confirm "IBM Bob CLI (bob) mit $pm installieren?"; then
+    log "Bob-CLI-Installation abgebrochen."
+    return 0
+  fi
+  extra_apps_config_set BOB_CLI_PM "$pm"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] curl $BOB_CLI_INSTALL_URL | bash -s -- --pm $pm"
+    return 0
+  fi
+  log "Installiere IBM Bob CLI ($pm) …"
+  extra_apps_run_user bash -c "curl -fsSL '$BOB_CLI_INSTALL_URL' | bash -s -- --pm '$pm'"
+}
+
+extra_apps_bob_cli_update() {
+  local install="${1:-0}" pm remote local url
+  if [[ "$(extra_apps_bob_cli_detect)" == none ]]; then
+    if [[ "$install" -eq 1 ]]; then
+      extra_apps_bob_cli_install
+    else
+      log "IBM Bob CLI nicht installiert – übersprungen."
+    fi
+    return 0
+  fi
+
+  remote="$(extra_apps_bob_cli_fetch_version || true)"
+  local="$(extra_apps_bob_cli_version || true)"
+  log "IBM Bob CLI: installiert ${local:-unbekannt}, verfügbar ${remote:-?}"
+
+  if [[ -n "$remote" && -n "$local" && "$local" == "$remote" ]]; then
+    log "IBM Bob CLI ist bereits aktuell."
+    return 0
+  fi
+  if ! confirm "IBM Bob CLI auf ${remote:-neueste Version} aktualisieren?"; then
+    log "Bob-CLI-Update abgebrochen."
+    return 0
+  fi
+
+  pm="$(extra_apps_bob_cli_pm_detect || extra_apps_bob_cli_pm_pick)" || pm=npm
+  extra_apps_config_set BOB_CLI_PM "$pm"
+  url="${BOB_CLI_BASE_URL}/bobshell-${remote}.tgz"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] $pm install -g $url"
+    return 0
+  fi
+
+  log "Aktualisiere IBM Bob CLI …"
+  case "$pm" in
+    npm)
+      extra_apps_run_user npm install --registry=https://registry.npmjs.org/ --progress=false --loglevel=error -g "$url"
+      ;;
+    pnpm)
+      extra_apps_run_user pnpm add --registry=https://registry.npmjs.org/ -g "$url"
+      ;;
+    yarn)
+      extra_apps_run_user env YARN_REGISTRY=https://registry.npmjs.org/ yarn global add "$url"
+      ;;
+    *)
+      extra_apps_run_user bash -c "curl -fsSL '$BOB_CLI_INSTALL_URL' | bash -s -- --pm '$pm'"
+      ;;
+  esac
+}
+
+# ── Sammelaktionen ───────────────────────────────────────────────────────────
+
+extra_apps_cursor_update() {
+  local install="${1:-0}"
+  extra_apps_profile
+  log "Cursor: IDE=${CURSOR_IDE_METHOD}, CLI=${CURSOR_CLI_METHOD}"
+  extra_apps_cursor_ide_update "$install"
+  extra_apps_cursor_cli_update "$install"
+}
+
 extra_apps_bob_update() {
   local install="${1:-0}"
-  extra_apps_yay_update_pkg "$IBM_BOB_PKG" 'IBM Bob' "$install"
+  extra_apps_profile
+  log "IBM Bob: IDE=${BOB_IDE_METHOD}, CLI=${BOB_CLI_METHOD}"
+  extra_apps_bob_ide_update "$install"
+  extra_apps_bob_cli_update "$install"
 }
 
 extra_apps_update_all() {
   local install="${1:-0}"
-  log "Zusatz-Anwendungen: Cursor IDE und IBM Bob"
+  log "Zusatz-Anwendungen: Cursor und IBM Bob (IDE + CLI)"
   extra_apps_cursor_update "$install"
   extra_apps_bob_update "$install"
 }
 
+extra_apps_status_line() {
+  local label="$1" method="$2" detail="${3:-}"
+  if [[ "$method" == none ]]; then
+    echo "  $label: nicht installiert${detail:+ ($detail)}"
+  else
+    echo "  $label: $method${detail:+ ($detail)}"
+  fi
+}
+
 extra_apps_status() {
-  local method ver
+  local ver path
+  extra_apps_profile
   echo
   echo "── Zusatz-Anwendungen ──"
-  method="$(extra_apps_cursor_detect)"
-  case "$method" in
+  case "$CURSOR_IDE_METHOD" in
     pacman)
-      ver="$(extra_apps_cursor_local_version pacman || echo '?')"
-      echo "  Cursor IDE: $CURSOR_AUR_PKG ($ver)"
+      ver="$(extra_apps_cursor_ide_version pacman || echo '?')"
+      extra_apps_status_line "Cursor IDE" "$CURSOR_AUR_PKG" "$ver"
       ;;
     appimage)
-      ver="$(extra_apps_cursor_local_version appimage || echo '?')"
-      echo "  Cursor IDE: AppImage $(extra_apps_cursor_appimage_path) ($ver)"
+      ver="$(extra_apps_cursor_ide_version appimage || echo '?')"
+      path="$(extra_apps_cursor_appimage_path || echo '?')"
+      extra_apps_status_line "Cursor IDE" "AppImage" "$ver – $path"
       ;;
-    none)
-      echo "  Cursor IDE: nicht installiert"
-      ;;
+    none) extra_apps_status_line "Cursor IDE" "none" ;;
   esac
-  if pacman -Qi "$IBM_BOB_PKG" &>/dev/null; then
-    ver="$(pacman -Qi "$IBM_BOB_PKG" | awk -F': ' '/^Version/{print $2; exit}')"
-    echo "  IBM Bob: $IBM_BOB_PKG ($ver)"
+  if [[ "$CURSOR_CLI_METHOD" != none ]]; then
+    ver="$(extra_apps_cursor_cli_version || echo '?')"
+    extra_apps_status_line "Cursor CLI" "cursor-agent" "$ver"
   else
-    echo "  IBM Bob: nicht installiert ($IBM_BOB_PKG)"
+    extra_apps_status_line "Cursor CLI" "none"
+  fi
+  case "$BOB_IDE_METHOD" in
+    pacman)
+      ver="$(pacman -Qi "$IBM_BOB_PKG" 2>/dev/null | awk -F': ' '/^Version/{print $2; exit}')"
+      extra_apps_status_line "IBM Bob IDE" "$IBM_BOB_PKG" "${ver:-?}"
+      ;;
+    none) extra_apps_status_line "IBM Bob IDE" "none" ;;
+  esac
+  if [[ "$BOB_CLI_METHOD" != none ]]; then
+    ver="$(extra_apps_bob_cli_version || echo '?')"
+    extra_apps_status_line "IBM Bob CLI" "bob${BOB_CLI_PM:+ ($BOB_CLI_PM)}" "$ver"
+  else
+    extra_apps_status_line "IBM Bob CLI" "none"
   fi
   echo "  Konfiguration: $EXTRA_APPS_CONFIG"
 }
