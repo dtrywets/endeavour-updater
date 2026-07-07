@@ -256,7 +256,55 @@ extra_apps_bob_cli_pm_detect() {
 }
 
 extra_apps_bob_cli_detect() {
+  [[ -x "$HOME/.local/bin/bob" ]] && { echo bob; return 0; }
   have_cmd bob && echo bob || echo none
+}
+
+extra_apps_node_user_prefix() {
+  echo "${NPM_CONFIG_PREFIX:-$HOME/.local}"
+}
+
+extra_apps_node_user_prepare() {
+  local prefix
+  prefix="$(extra_apps_node_user_prefix)"
+  mkdir -p "$prefix/bin" "$prefix/lib/node_modules"
+  echo "$prefix"
+}
+
+extra_apps_bob_cli_run_install_script() {
+  local pm="$1"
+  local prefix
+  prefix="$(extra_apps_node_user_prepare)"
+  extra_apps_run_user bash -c "
+    set -euo pipefail
+    export npm_config_prefix='${prefix}'
+    export PNPM_HOME='${prefix}'
+    export PATH='${prefix}/bin':\"\$PATH\"
+    curl -fsSL '${BOB_CLI_INSTALL_URL}' | bash -s -- --pm '${pm}'
+  "
+}
+
+extra_apps_bob_cli_run_pm_global() {
+  local pm="$1" url="$2"
+  local prefix
+  prefix="$(extra_apps_node_user_prepare)"
+  case "$pm" in
+    npm)
+      extra_apps_run_user env npm_config_prefix="$prefix" \
+        npm install --registry=https://registry.npmjs.org/ --progress=false --loglevel=error -g "$url"
+      ;;
+    pnpm)
+      extra_apps_run_user env PNPM_HOME="$prefix" npm_config_prefix="$prefix" \
+        pnpm add --registry=https://registry.npmjs.org/ -g "$url"
+      ;;
+    yarn)
+      extra_apps_run_user env npm_config_prefix="$prefix" \
+        YARN_REGISTRY=https://registry.npmjs.org/ yarn global add "$url"
+      ;;
+    *)
+      extra_apps_bob_cli_run_install_script "$pm"
+      ;;
+  esac
 }
 
 extra_apps_profile() {
@@ -453,6 +501,9 @@ extra_apps_bob_ide_update() {
         log "Bob-IDE-Update abgebrochen."
         return 0
       fi
+      if pacman -Qi bobide &>/dev/null; then
+        warn "Altes Paket bobide wird durch $IBM_BOB_PKG ersetzt (pacman-Konflikt)."
+      fi
       log "Synchronisiere mit $IBM_BOB_PKG …"
       local flags=(-S --needed)
       [[ "$NONINTERACTIVE" -eq 1 || "$YES" -eq 1 ]] && flags+=(--noconfirm)
@@ -504,11 +555,18 @@ extra_apps_bob_cli_install() {
   fi
   extra_apps_config_set BOB_CLI_PM "$pm"
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "[dry-run] curl $BOB_CLI_INSTALL_URL | bash -s -- --pm $pm"
+    log "[dry-run] Bob CLI nach $(extra_apps_node_user_prefix) via $pm"
     return 0
   fi
-  log "Installiere IBM Bob CLI ($pm) …"
-  extra_apps_run_user bash -c "curl -fsSL '$BOB_CLI_INSTALL_URL' | bash -s -- --pm '$pm'"
+  log "Installiere IBM Bob CLI ($pm) nach $(extra_apps_node_user_prefix) …"
+  extra_apps_bob_cli_run_install_script "$pm"
+  if [[ -x "$(extra_apps_node_user_prefix)/bin/bob" ]]; then
+    log "Bob CLI installiert: $(extra_apps_node_user_prefix)/bin/bob"
+  elif have_cmd bob; then
+    log "Bob CLI installiert: $(command -v bob)"
+  else
+    warn "Bob CLI nach Installation nicht gefunden – PATH prüfen: $(extra_apps_node_user_prefix)/bin"
+  fi
 }
 
 extra_apps_bob_cli_update() {
@@ -545,20 +603,7 @@ extra_apps_bob_cli_update() {
   fi
 
   log "Aktualisiere IBM Bob CLI …"
-  case "$pm" in
-    npm)
-      extra_apps_run_user npm install --registry=https://registry.npmjs.org/ --progress=false --loglevel=error -g "$url"
-      ;;
-    pnpm)
-      extra_apps_run_user pnpm add --registry=https://registry.npmjs.org/ -g "$url"
-      ;;
-    yarn)
-      extra_apps_run_user env YARN_REGISTRY=https://registry.npmjs.org/ yarn global add "$url"
-      ;;
-    *)
-      extra_apps_run_user bash -c "curl -fsSL '$BOB_CLI_INSTALL_URL' | bash -s -- --pm '$pm'"
-      ;;
-  esac
+  extra_apps_bob_cli_run_pm_global "$pm" "$url"
 }
 
 # ── Sammelaktionen ───────────────────────────────────────────────────────────

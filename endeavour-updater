@@ -6,6 +6,12 @@ set -euo pipefail
 
 UPDATER_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
+# Als root/sudo: HOME des aufrufenden Benutzers für Konfiguration nutzen
+if [[ "${EUID:-$(id -u)}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+  _eu_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+  [[ -n "$_eu_home" && -d "$_eu_home" ]] && export HOME="$_eu_home"
+fi
+
 # shellcheck source=lib/common.sh
 source "$UPDATER_ROOT/lib/common.sh"
 # shellcheck source=lib/aur_sources.sh
@@ -227,6 +233,17 @@ run_mode() {
 }
 
 main() {
+  # Als root/sudo: Konfiguration vor dem Einlesen auf den Zielbenutzer setzen
+  if [[ "${EUID:-$(id -u)}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    _eu_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+    if [[ -n "$_eu_home" && -d "$_eu_home" ]]; then
+      export HOME="$_eu_home"
+      CONFIG_DIR="$HOME/.config/endeavour-updater"
+      CONFIG_FILE="$CONFIG_DIR/install.conf"
+      LOG_DIR="$CONFIG_DIR/logs"
+    fi
+  fi
+
   # Installierte Kopie: Konfiguration nur für Status/Cron-Pfade
   if [[ -f "$CONFIG_FILE" ]]; then
     install_load_config 2>/dev/null || true
@@ -234,6 +251,7 @@ main() {
 
   parse_args "$@"
   resolve_mode
+  warn_if_root
   log "Start (Modus: $MODE)"
   run_mode
   log "Fertig."

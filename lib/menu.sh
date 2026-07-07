@@ -71,9 +71,9 @@ menu_apps_sub() {
     echo
     read -r -p "Auswahl: " c
     case "${c:-}" in
-      1) extra_apps_cursor_update 1; pause_menu ;;
-      2) extra_apps_bob_update 1; pause_menu ;;
-      3) extra_apps_update_all 1; pause_menu ;;
+      1) extra_apps_cursor_update 0; pause_menu ;;
+      2) extra_apps_bob_update 0; pause_menu ;;
+      3) extra_apps_update_all 0; pause_menu ;;
       4) extra_apps_cursor_cli_install; pause_menu ;;
       5) extra_apps_bob_cli_install; pause_menu ;;
       6) return ;;
@@ -116,6 +116,7 @@ menu_install_sub() {
 
 menu_main_loop() {
   ensure_pacman
+  warn_if_root
   install_ensure || true
   while true; do
     menu_header

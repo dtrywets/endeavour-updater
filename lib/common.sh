@@ -63,6 +63,14 @@ ensure_pacman() {
   have_cmd pacman || die "pacman nicht gefunden – Arch-basiertes System erwartet."
 }
 
+warn_if_root() {
+  if [[ "$EUID" -eq 0 && -z "${SUDO_USER:-}" ]]; then
+    warn "Als root ausgeführt – bitte als normaler Benutzer starten (nicht sudo ./endeavour-updater)."
+  elif [[ "$EUID" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    warn "Root-Kontext – Konfiguration für Benutzer $SUDO_USER ($HOME)."
+  fi
+}
+
 cron_log() {
   mkdir -p "$LOG_DIR"
   echo "$*"

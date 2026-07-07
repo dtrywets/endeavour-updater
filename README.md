@@ -240,6 +240,12 @@ CURSOR_APPIMAGE_VERSION=3.8.11
 
 Nach dem ersten Update übernimmt der Updater das automatisch.
 
+**Hinweise**
+
+- Updater **nicht als root** starten (`sudo ./endeavour-updater`). Falls doch: Konfiguration liegt unter `/root/.config/…` statt beim Benutzer.
+- Bob CLI wird nach `~/.local` installiert (npm-User-Prefix), nicht nach `/usr/lib/node_modules`.
+- Migration von Upstream-Bob zu `ibm-bob-bin` entfernt ggf. das alte Paket `bobide` (Pacman-Konflikt).
+
 ## Projektstruktur
 
 ```
