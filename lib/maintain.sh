@@ -205,6 +205,7 @@ maintain_cron_update() {
   log "Cron: Paket-Update"
   maintain_update_packages 0
   maintain_check_pacnew_reminder
+  extra_apps_update_after_packages
 }
 
 maintain_cron_monthly() {
@@ -239,4 +240,7 @@ maintain_interactive_full() {
     maintain_clean_all
   fi
   maintain_remove_orphans 0
+  if confirm "Cursor IDE und IBM Bob aktualisieren?"; then
+    extra_apps_update_all 0
+  fi
 }

@@ -24,6 +24,7 @@ menu_show() {
   echo "  7) Cronjobs: Status / installieren / entfernen"
   echo "  8) Installation / Update / Deinstallation"
   echo "  9) Hilfe"
+  echo " 10) Cursor IDE / IBM Bob"
   echo "  0) Beenden"
   echo
 }
@@ -49,6 +50,28 @@ menu_cron_sub() {
         fi
         pause_menu
         ;;
+      4) return ;;
+      *) warn "Ungültige Auswahl."; sleep 1 ;;
+    esac
+  done
+}
+
+menu_apps_sub() {
+  while true; do
+    menu_header
+    echo "── Cursor IDE / IBM Bob ──"
+    extra_apps_status
+    echo
+    echo "  1) Cursor IDE aktualisieren"
+    echo "  2) IBM Bob aktualisieren"
+    echo "  3) Beide aktualisieren"
+    echo "  4) Zurück"
+    echo
+    read -r -p "Auswahl: " c
+    case "${c:-}" in
+      1) extra_apps_cursor_update 1; pause_menu ;;
+      2) extra_apps_bob_update 1; pause_menu ;;
+      3) extra_apps_update_all 1; pause_menu ;;
       4) return ;;
       *) warn "Ungültige Auswahl."; sleep 1 ;;
     esac
@@ -118,6 +141,7 @@ menu_main_loop() {
       7) menu_cron_sub ;;
       8) menu_install_sub ;;
       9) eu_usage; pause_menu ;;
+      10) menu_apps_sub ;;
       0) log "Tschüss."; exit 0 ;;
       *) warn "Ungültige Auswahl."; sleep 1 ;;
     esac

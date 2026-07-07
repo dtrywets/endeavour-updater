@@ -95,9 +95,32 @@ endeavour-updater --update
 
 Bereits vorhandene Kopien in `~/.cache/yay/iacs/` oder `~/Downloads/` werden beim ersten Lauf automatisch übernommen, sofern die Prüfsumme passt.
 
+## Cursor IDE und IBM Bob
+
+Der Updater kann **Cursor IDE** und **IBM Bob** (`ibm-bob-bin` aus dem AUR) separat oder zusammen mit dem Paket-Update aktualisieren.
+
+| Installation | Update-Methode |
+|--------------|----------------|
+| Cursor als AppImage (`~/Applications/cursor.AppImage` o. Ä.) | Offizielle Cursor-API, Download der neuesten AppImage |
+| Cursor als AUR-Paket `cursor-bin` | `yay -S cursor-bin` |
+| IBM Bob als AUR-Paket `ibm-bob-bin` | `yay -S ibm-bob-bin` |
+
+```bash
+endeavour-updater --cursor      # nur Cursor
+endeavour-updater --ibm-bob     # nur IBM Bob
+endeavour-updater --apps        # beide
+```
+
+Bei `--update` und im wöchentlichen Cron werden installierte Zusatz-Anwendungen automatisch mit aktualisiert (abschaltbar in `~/.config/endeavour-updater/extra-apps.conf`: `EXTRA_APPS_WITH_UPDATE=0`).
+
+Im Menü: **10) Cursor IDE / IBM Bob**.
+
+Bei einer **bestehenden AppImage-Installation** kann die lokale Version einmalig in `extra-apps.conf` gesetzt werden (`CURSOR_APPIMAGE_VERSION=3.8.11`). Nach dem ersten Update übernimmt der Updater das automatisch.
+
 ## Abhängigkeiten (optional)
 
-- `yay` – AUR-Updates
+- `yay` – AUR-Updates (Cursor/IBM Bob)
+- `curl` – Cursor AppImage-Updates
 - `reflector` – Arch-Spiegel
 - `eos-rankmirrors` – Endeavour-Spiegel
 - `pacman-contrib` – `paccache`, `pacdiff`

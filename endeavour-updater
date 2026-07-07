@@ -16,6 +16,8 @@ source "$UPDATER_ROOT/lib/maintain.sh"
 source "$UPDATER_ROOT/lib/cron.sh"
 # shellcheck source=lib/install.sh
 source "$UPDATER_ROOT/lib/install.sh"
+# shellcheck source=lib/extra_apps.sh
+source "$UPDATER_ROOT/lib/extra_apps.sh"
 # shellcheck source=lib/menu.sh
 source "$UPDATER_ROOT/lib/menu.sh"
 
@@ -57,6 +59,9 @@ Einzelaktionen (Skripte / manuell):
   endeavour-updater --pacdiff
   endeavour-updater --full
   endeavour-updater --iacs-import <zip>   IBM-Quelle für iacs speichern
+  endeavour-updater --cursor              Cursor IDE aktualisieren
+  endeavour-updater --ibm-bob             IBM Bob aktualisieren
+  endeavour-updater --apps                Cursor + IBM Bob aktualisieren
 
 Optionen:
   -y, --yes         Keine Rückfragen (für Cron)
@@ -104,6 +109,9 @@ parse_args() {
         IACS_IMPORT_SRC="${2:?--iacs-import braucht Pfad zur ZIP-Datei}"
         shift
         ;;
+      --cursor)      MODE=cursor ;;
+      --ibm-bob)     MODE=ibm-bob ;;
+      --apps)        MODE=apps ;;
       -y|--yes)      YES=1; NONINTERACTIVE=1 ;;
       -n|--dry-run)  DRY_RUN=1 ;;
       -h|--help)     eu_usage; exit 0 ;;
@@ -161,6 +169,7 @@ run_mode() {
     update)
       maintain_update_packages 0
       maintain_check_pacnew_reminder
+      extra_apps_update_after_packages
       ;;
     mirrors)
       maintain_mirrors_all
@@ -181,6 +190,15 @@ run_mode() {
       ;;
     iacs-import)
       aur_sources_iacs_import "$IACS_IMPORT_SRC"
+      ;;
+    cursor)
+      extra_apps_cursor_update 1
+      ;;
+    ibm-bob)
+      extra_apps_bob_update 1
+      ;;
+    apps)
+      extra_apps_update_all 1
       ;;
     *)
       die "Interner Modusfehler: $MODE"
