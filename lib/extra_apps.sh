@@ -21,6 +21,8 @@ CURSOR_APPIMAGE=
 CURSOR_APPIMAGE_VERSION=
 # Bob CLI: npm, pnpm oder yarn (leer = automatisch erkennen)
 BOB_CLI_PM=
+# npm global prefix (leer = ~/.local, Fallback ~/.config/endeavour-updater/npm)
+NPM_CONFIG_PREFIX=
 # Bob IDE Binary (leer = automatisch /usr/share/bobide/bobide, /usr/bin/bobide)
 BOB_IDE_BINARY=
 # Bei --update / Cron mit aktualisieren (1=ja, 0=nein)
@@ -261,50 +263,90 @@ extra_apps_bob_cli_detect() {
 }
 
 extra_apps_node_user_prefix() {
-  echo "${NPM_CONFIG_PREFIX:-$HOME/.local}"
+  extra_apps_config_load
+  [[ -n "${NPM_CONFIG_PREFIX:-}" ]] && { echo "$NPM_CONFIG_PREFIX"; return 0; }
+  echo "$HOME/.local"
+}
+
+extra_apps_node_user_dir_writable() {
+  local prefix="$1" dir
+  for dir in "$prefix" "$prefix/bin" "$prefix/lib" "$prefix/lib/node_modules"; do
+    [[ -e "$dir" && ! -w "$dir" ]] && return 1
+  done
+  return 0
+}
+
+extra_apps_node_user_fix_permissions() {
+  local prefix="$1" dir owner need_fix=0
+  for dir in "$prefix/lib" "$prefix/lib/node_modules" "$prefix/bin"; do
+    [[ -e "$dir" ]] || continue
+    if [[ ! -w "$dir" ]]; then
+      owner="$(stat -c '%U' "$dir" 2>/dev/null || echo '?')"
+      warn "Keine Schreibrechte: $dir (Besitzer: $owner)"
+      need_fix=1
+    fi
+  done
+  [[ "$need_fix" -eq 0 ]] && return 0
+  warn "Oft Ursache: frühere Installation mit sudo/npm als root."
+  if ! confirm "Besitz von $prefix/lib und $prefix/bin auf $USER setzen (sudo chown)?"; then
+    return 1
+  fi
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
+  run_root chown -R "$USER:$USER" "$prefix/lib" "$prefix/bin" 2>/dev/null \
+    || run_root chown -R "$USER:$USER" "$prefix"
 }
 
 extra_apps_node_user_prepare() {
   local prefix
   prefix="$(extra_apps_node_user_prefix)"
+  if ! extra_apps_node_user_dir_writable "$prefix"; then
+    extra_apps_node_user_fix_permissions "$prefix" || {
+      prefix="$CONFIG_DIR/npm"
+      warn "Nutze alternativen npm-Prefix: $prefix"
+      extra_apps_config_set NPM_CONFIG_PREFIX "$prefix"
+    }
+  fi
   mkdir -p "$prefix/bin" "$prefix/lib/node_modules"
   echo "$prefix"
 }
 
 extra_apps_bob_cli_run_install_script() {
-  local pm="$1"
-  local prefix
-  prefix="$(extra_apps_node_user_prepare)"
-  extra_apps_run_user bash -c "
-    set -euo pipefail
-    export npm_config_prefix='${prefix}'
-    export PNPM_HOME='${prefix}'
-    export PATH='${prefix}/bin':\"\$PATH\"
-    curl -fsSL '${BOB_CLI_INSTALL_URL}' | bash -s -- --pm '${pm}'
-  "
+  local pm="$1" remote url
+  remote="$(extra_apps_bob_cli_fetch_version)" || {
+    warn "Bob-CLI-Version nicht ermittelbar."
+    return 1
+  }
+  url="${BOB_CLI_BASE_URL}/bobshell-${remote}.tgz"
+  log "Direktes Paket: bobshell-${remote}.tgz"
+  extra_apps_bob_cli_run_pm_global "$pm" "$url"
 }
 
 extra_apps_bob_cli_run_pm_global() {
   local pm="$1" url="$2"
-  local prefix
+  local prefix rc=0
   prefix="$(extra_apps_node_user_prepare)"
   case "$pm" in
     npm)
       extra_apps_run_user env npm_config_prefix="$prefix" \
-        npm install --registry=https://registry.npmjs.org/ --progress=false --loglevel=error -g "$url"
+        npm install --registry=https://registry.npmjs.org/ --progress=false --loglevel=error -g "$url" \
+        || rc=1
       ;;
     pnpm)
       extra_apps_run_user env PNPM_HOME="$prefix" npm_config_prefix="$prefix" \
-        pnpm add --registry=https://registry.npmjs.org/ -g "$url"
+        pnpm add --registry=https://registry.npmjs.org/ -g "$url" \
+        || rc=1
       ;;
     yarn)
       extra_apps_run_user env npm_config_prefix="$prefix" \
-        YARN_REGISTRY=https://registry.npmjs.org/ yarn global add "$url"
+        YARN_REGISTRY=https://registry.npmjs.org/ yarn global add "$url" \
+        || rc=1
       ;;
     *)
-      extra_apps_bob_cli_run_install_script "$pm"
+      warn "Unbekannter Paketmanager: $pm"
+      return 1
       ;;
   esac
+  [[ "$rc" -eq 0 ]]
 }
 
 extra_apps_profile() {
@@ -559,7 +601,7 @@ extra_apps_bob_cli_install() {
     return 0
   fi
   log "Installiere IBM Bob CLI ($pm) nach $(extra_apps_node_user_prefix) …"
-  extra_apps_bob_cli_run_install_script "$pm"
+  extra_apps_bob_cli_run_install_script "$pm" || return 1
   if [[ -x "$(extra_apps_node_user_prefix)/bin/bob" ]]; then
     log "Bob CLI installiert: $(extra_apps_node_user_prefix)/bin/bob"
   elif have_cmd bob; then

@@ -1,0 +1,29 @@
+---
+description: Nach bestätigten Codeänderungen immer commiten und pushen
+alwaysApply: true
+---
+
+# Commit und Sync nach jeder Änderung
+
+Wenn du Code in diesem Projekt **änderst und die Aufgabe abgeschlossen** ist (oder der Nutzer die Änderung bestätigt):
+
+1. **Immer** `git add` (nur relevante Dateien, keine Chat-Exporte/Secrets)
+2. **Immer** Commit mit **deutscher** Message (Betreff + ggf. kurzer Body)
+3. **Immer** `git push` zu `origin`
+
+Ohne Commit+Push sind Anweisungen wie „jetzt auf vm88 ausführen“ wirkungslos — der Nutzer arbeitet auf anderen Maschinen aus dem Remote-Repo.
+
+## Ausnahmen
+
+- Nutzer sagt ausdrücklich „nicht committen“
+- Es gibt nichts zu committen (working tree clean)
+- Commit scheitert am Hook → Problem beheben, **neuen** Commit (kein amend außer Hook-Fall)
+
+## Commit-Message
+
+- Deutsch, sachlich, beschreibt das **Warum**
+- Keine Cursor-/KI-Meta-Zeilen im Footer
+
+## PR-Titel
+
+Ebenfalls auf Deutsch, sofern nicht anders gewünscht.

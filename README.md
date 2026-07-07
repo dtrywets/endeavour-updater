@@ -244,6 +244,7 @@ Nach dem ersten Update übernimmt der Updater das automatisch.
 
 - Updater **nicht als root** starten (`sudo ./endeavour-updater`). Falls doch: Konfiguration liegt unter `/root/.config/…` statt beim Benutzer.
 - Bob CLI wird nach `~/.local` installiert (npm-User-Prefix), nicht nach `/usr/lib/node_modules`.
+- Schreibrechte auf `~/.local/lib` fehlen? Der Updater bietet `sudo chown` an oder nutzt `~/.config/endeavour-updater/npm` als Fallback.
 - Migration von Upstream-Bob zu `ibm-bob-bin` entfernt ggf. das alte Paket `bobide` (Pacman-Konflikt).
 
 ## Projektstruktur
