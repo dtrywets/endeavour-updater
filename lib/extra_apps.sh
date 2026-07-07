@@ -21,6 +21,8 @@ CURSOR_APPIMAGE=
 CURSOR_APPIMAGE_VERSION=
 # Bob CLI: npm, pnpm oder yarn (leer = automatisch erkennen)
 BOB_CLI_PM=
+# Bob IDE Binary (leer = automatisch /usr/share/bobide/bobide, /usr/bin/bobide)
+BOB_IDE_BINARY=
 # Bei --update / Cron mit aktualisieren (1=ja, 0=nein)
 EXTRA_APPS_WITH_UPDATE=1
 EOF
@@ -173,14 +175,67 @@ extra_apps_cursor_cli_detect() {
   extra_apps_cursor_cli_bin >/dev/null && echo cursor-agent || echo none
 }
 
+extra_apps_bob_ide_bin() {
+  local p f line
+  extra_apps_config_load
+  if [[ -n "${BOB_IDE_BINARY:-}" && -x "$BOB_IDE_BINARY" ]]; then
+    echo "$BOB_IDE_BINARY"
+    return 0
+  fi
+  for p in /usr/share/bobide/bobide /usr/bin/bobide; do
+    [[ -x "$p" ]] && { echo "$p"; return 0; }
+  done
+  if have_cmd bobide; then
+    command -v bobide
+    return 0
+  fi
+  for f in /usr/share/applications/bobide*.desktop "$HOME/.local/share/applications"/bobide*.desktop; do
+    [[ -f "$f" ]] || continue
+    line="$(grep -m1 '^Exec=' "$f" 2>/dev/null || true)"
+    [[ -n "$line" ]] || continue
+    p="${line#Exec=}"
+    p="${p%% *}"
+    p="${p//\"/}"
+    [[ -x "$p" ]] && { echo "$p"; return 0; }
+  done
+  return 1
+}
+
 extra_apps_bob_ide_detect() {
+  local bin owner
   if pacman -Qi "$IBM_BOB_PKG" &>/dev/null; then
     echo pacman
-  elif have_cmd bobide && pacman -Qo "$(command -v bobide)" &>/dev/null 2>&1; then
+    return 0
+  fi
+  bin="$(extra_apps_bob_ide_bin || true)"
+  [[ -n "$bin" ]] || { echo none; return 0; }
+  owner="$(pacman -Qo "$bin" 2>/dev/null | awk '{print $NF}' || true)"
+  if [[ "$owner" == "$IBM_BOB_PKG" || "$owner" == bobide ]]; then
     echo pacman
   else
-    echo none
+    echo upstream
   fi
+}
+
+extra_apps_bob_ide_version() {
+  local method="$1" bin pkgjson ver
+  case "$method" in
+    pacman)
+      pacman -Qi "$IBM_BOB_PKG" 2>/dev/null | awk -F': ' '/^Version/{print $2; exit}' | cut -d- -f1
+      ;;
+    upstream)
+      for pkgjson in /usr/share/bobide/resources/app/package.json \
+                     /usr/share/bobide/vscode/resources/app/package.json \
+                     /usr/share/bobide/package.json; do
+        if [[ -f "$pkgjson" ]]; then
+          ver="$(grep -m1 '"version"' "$pkgjson" 2>/dev/null | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+          [[ -n "$ver" ]] && echo "$ver" && return 0
+        fi
+      done
+      bin="$(extra_apps_bob_ide_bin || true)"
+      [[ -n "$bin" ]] && "$bin" --version 2>/dev/null | head -1
+      ;;
+  esac
 }
 
 extra_apps_bob_cli_pm_detect() {
@@ -379,10 +434,30 @@ extra_apps_bob_ide_install() {
 }
 
 extra_apps_bob_ide_update() {
-  local install="${1:-0}" method
+  local install="${1:-0}" method ver bin
   method="$(extra_apps_bob_ide_detect)"
   case "$method" in
-    pacman) extra_apps_yay_update_pkg "$IBM_BOB_PKG" 'IBM Bob IDE' 0 ;;
+    pacman)
+      extra_apps_yay_update_pkg "$IBM_BOB_PKG" 'IBM Bob IDE' 0
+      ;;
+    upstream)
+      bin="$(extra_apps_bob_ide_bin || echo '?')"
+      ver="$(extra_apps_bob_ide_version upstream || echo '?')"
+      log "IBM Bob IDE (Upstream): $bin ($ver)"
+      if ! have_cmd yay; then
+        warn "yay fehlt – Upstream-Installation manuell aktualisieren oder $IBM_BOB_PKG installieren."
+        warn "Download: https://bob.ibm.com/download"
+        return 1
+      fi
+      if ! confirm "IBM Bob IDE über AUR ($IBM_BOB_PKG) aktualisieren?"; then
+        log "Bob-IDE-Update abgebrochen."
+        return 0
+      fi
+      log "Synchronisiere mit $IBM_BOB_PKG …"
+      local flags=(-S --needed)
+      [[ "$NONINTERACTIVE" -eq 1 || "$YES" -eq 1 ]] && flags+=(--noconfirm)
+      extra_apps_run_yay "${flags[@]}" "$IBM_BOB_PKG"
+      ;;
     none)
       if [[ "$install" -eq 1 ]]; then
         extra_apps_bob_ide_install
@@ -545,8 +620,13 @@ extra_apps_status() {
   fi
   case "$BOB_IDE_METHOD" in
     pacman)
-      ver="$(pacman -Qi "$IBM_BOB_PKG" 2>/dev/null | awk -F': ' '/^Version/{print $2; exit}')"
-      extra_apps_status_line "IBM Bob IDE" "$IBM_BOB_PKG" "${ver:-?}"
+      ver="$(extra_apps_bob_ide_version pacman || echo '?')"
+      extra_apps_status_line "IBM Bob IDE" "$IBM_BOB_PKG" "$ver"
+      ;;
+    upstream)
+      ver="$(extra_apps_bob_ide_version upstream || echo '?')"
+      path="$(extra_apps_bob_ide_bin || echo '?')"
+      extra_apps_status_line "IBM Bob IDE" "Upstream" "$ver – $path"
       ;;
     none) extra_apps_status_line "IBM Bob IDE" "none" ;;
   esac

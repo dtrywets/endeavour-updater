@@ -193,7 +193,7 @@ Alle Dateien unter `~/.config/endeavour-updater/`:
 |-------|--------|
 | `install.conf` | Installationspfade (nach `--install`) |
 | `orphan-protect` | Pakete, die bei Waisen-Bereinigung nie entfernt werden |
-| `extra-apps.conf` | Cursor AppImage-Pfad, Version, Bob CLI, Cron-Integration |
+| `extra-apps.conf` | Cursor AppImage-Pfad, Version, Bob IDE/CLI, Cron-Integration |
 | `aur-sources/iacs/` | IBM-ZIP für AUR-Paket `iacs` |
 | `logs/` | Cron- und Laufzeit-Logs |
 
@@ -228,7 +228,7 @@ Der Updater erkennt, **was installiert ist**, und wählt die passende Methode:
 | Cursor IDE (AppImage) | `.desktop`, `~/Applications/cursor.AppImage` | Cursor-API |
 | Cursor IDE (AUR) | `cursor-bin` | `yay -S cursor-bin` |
 | Cursor CLI | `cursor-agent` / `agent` | `cursor-agent update` |
-| IBM Bob IDE | `ibm-bob-bin` | `yay -S ibm-bob-bin` |
+| IBM Bob IDE | `ibm-bob-bin` (AUR) oder `/usr/share/bobide/bobide` | `yay -S ibm-bob-bin` |
 | IBM Bob CLI | `bob` (npm/pnpm/yarn) | IBM-Release |
 
 Bei einer bestehenden Cursor-AppImage-Installation kann die Version einmalig gesetzt werden:
