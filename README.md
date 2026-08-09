@@ -47,7 +47,7 @@ Orientierung am [EndeavourOS Maintenance Guide](https://forum.endeavouros.com/t/
 Repository klonen und Skript ausführbar machen:
 
 ```bash
-git clone https://github.com/dtrywets/endeavour-updater.git
+git clone https://github.com/thelad-dev/endeavour-updater.git
 cd endeavour-updater
 chmod +x endeavour-updater
 ```
