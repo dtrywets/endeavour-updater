@@ -1,11 +1,14 @@
-# Zusatz-Anwendungen: Cursor IDE/CLI und IBM Bob IDE/CLI
+# shellcheck shell=bash
+# Zusatz-Anwendungen: Cursor, IBM Bob und Agent-Stack (Herdr + Pi + Firstmate)
 
 : "${EXTRA_APPS_CONFIG:=$CONFIG_DIR/extra-apps.conf}"
 
 CURSOR_AUR_PKG='cursor-bin'
 IBM_BOB_PKG='ibm-bob-bin'
+PI_NPM_PKG='@earendil-works/pi-coding-agent'
 CURSOR_API_URL='https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable'
 CURSOR_CLI_INSTALL_URL='https://cursor.com/install'
+# shellcheck disable=SC2034 # dokumentierte Upstream-URL, derzeit ungenutzt
 BOB_CLI_INSTALL_URL='https://bob.ibm.com/download/bobshell.sh'
 BOB_CLI_VERSION_URL='https://s3.us-south.cloud-object-storage.appdomain.cloud/bob-shell/bobshell-version.txt'
 BOB_CLI_BASE_URL='https://s3.us-south.cloud-object-storage.appdomain.cloud/bob-shell'
@@ -21,12 +24,24 @@ CURSOR_APPIMAGE=
 CURSOR_APPIMAGE_VERSION=
 # Bob CLI: npm, pnpm oder yarn (leer = automatisch erkennen)
 BOB_CLI_PM=
+# Pi CLI: npm, pnpm oder yarn (leer = automatisch erkennen)
+PI_CLI_PM=
 # npm global prefix (leer = ~/.local, Fallback ~/.config/endeavour-updater/npm)
 NPM_CONFIG_PREFIX=
 # Bob IDE Binary (leer = automatisch /usr/share/bobide/bobide, /usr/bin/bobide)
 BOB_IDE_BINARY=
-# Bei --update / Cron mit aktualisieren (1=ja, 0=nein)
+# Firstmate-Root (leer = FIRSTMATE_HOME/FM_HOME/FM_ROOT oder übliche Pfade)
+FIRSTMATE_HOME=
+# Bei --update / Cron: Cursor + Bob mit aktualisieren (1=ja, 0=nein)
 EXTRA_APPS_WITH_UPDATE=1
+# Bei --update / Cron: Agent-Stack (Herdr/Pi/Firstmate) mit aktualisieren (1=ja, 0=nein)
+AGENT_STACK_WITH_UPDATE=0
+# Bei --apps: Agent-Stack zusätzlich zu Cursor/Bob (1=ja, 0=nein)
+AGENT_STACK_WITH_APPS=0
+# Einzelne Agent-Stack-Komponenten überspringen (1=ja)
+SKIP_HERDR=0
+SKIP_PI=0
+SKIP_FIRSTMATE=0
 EOF
 }
 
@@ -355,6 +370,11 @@ extra_apps_profile() {
   BOB_IDE_METHOD="$(extra_apps_bob_ide_detect)"
   BOB_CLI_METHOD="$(extra_apps_bob_cli_detect)"
   BOB_CLI_PM="$(extra_apps_bob_cli_pm_detect || true)"
+  HERDR_METHOD="$(extra_apps_herdr_detect)"
+  PI_METHOD="$(extra_apps_pi_detect)"
+  PI_CLI_PM="$(extra_apps_pi_pm_detect || true)"
+  FIRSTMATE_METHOD="$(extra_apps_firstmate_detect)"
+  FIRSTMATE_ROOT="$(extra_apps_firstmate_root || true)"
 }
 
 # ── Cursor IDE ───────────────────────────────────────────────────────────────
@@ -612,7 +632,7 @@ extra_apps_bob_cli_install() {
 }
 
 extra_apps_bob_cli_update() {
-  local install="${1:-0}" pm remote local url
+  local install="${1:-0}" pm remote installed_ver url
   if [[ "$(extra_apps_bob_cli_detect)" == none ]]; then
     if [[ "$install" -eq 1 ]]; then
       extra_apps_bob_cli_install
@@ -623,10 +643,10 @@ extra_apps_bob_cli_update() {
   fi
 
   remote="$(extra_apps_bob_cli_fetch_version || true)"
-  local="$(extra_apps_bob_cli_version || true)"
-  log "IBM Bob CLI: installiert ${local:-unbekannt}, verfügbar ${remote:-?}"
+  installed_ver="$(extra_apps_bob_cli_version || true)"
+  log "IBM Bob CLI: installiert ${installed_ver:-unbekannt}, verfügbar ${remote:-?}"
 
-  if [[ -n "$remote" && -n "$local" && "$local" == "$remote" ]]; then
+  if [[ -n "$remote" && -n "$installed_ver" && "$installed_ver" == "$remote" ]]; then
     log "IBM Bob CLI ist bereits aktuell."
     return 0
   fi
@@ -671,12 +691,359 @@ extra_apps_update_all() {
   log "Zusatz-Anwendungen: Cursor und IBM Bob (IDE + CLI)"
   extra_apps_cursor_update "$install"
   extra_apps_bob_update "$install"
+  extra_apps_config_load
+  if [[ "${AGENT_STACK_WITH_APPS:-0}" -eq 1 ]]; then
+    extra_apps_agent_stack_update "$install"
+  fi
+}
+
+# ── Agent-Stack: Herdr + Pi + Firstmate ──────────────────────────────────────
+
+extra_apps_herdr_bin() {
+  local c
+  if [[ -x "$HOME/.local/bin/herdr" ]]; then
+    echo "$HOME/.local/bin/herdr"
+    return 0
+  fi
+  if have_cmd herdr; then
+    command -v herdr
+    return 0
+  fi
+  return 1
+}
+
+extra_apps_herdr_detect() {
+  extra_apps_config_load
+  if [[ "${SKIP_HERDR:-0}" -eq 1 ]]; then
+    echo skipped
+    return 0
+  fi
+  if extra_apps_herdr_bin >/dev/null; then
+    echo herdr
+  else
+    echo none
+  fi
+}
+
+extra_apps_herdr_version() {
+  local bin out
+  bin="$(extra_apps_herdr_bin || true)"
+  [[ -n "$bin" ]] || return 1
+  out="$("$bin" --version 2>/dev/null | head -1 || true)"
+  out="${out#herdr }"
+  out="${out//[$'\t\r\n']/}"
+  [[ -n "$out" ]] && echo "$out"
+}
+
+extra_apps_herdr_update() {
+  local bin before after
+  extra_apps_config_load
+  if [[ "${SKIP_HERDR:-0}" -eq 1 ]]; then
+    log "Herdr: übersprungen (SKIP_HERDR=1)."
+    return 0
+  fi
+  bin="$(extra_apps_herdr_bin || true)"
+  if [[ -z "$bin" ]]; then
+    log "Herdr nicht installiert – übersprungen."
+    return 0
+  fi
+
+  before="$(extra_apps_herdr_version || echo unbekannt)"
+  log "Herdr: installiert $before ($bin)"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] $bin update"
+    return 0
+  fi
+  if ! confirm "Herdr aktualisieren (herdr update)?"; then
+    log "Herdr-Update abgebrochen."
+    return 0
+  fi
+
+  log "Aktualisiere Herdr …"
+  # Immer als realer Benutzer, nie als root (Self-Update schreibt nach ~/.local)
+  if ! extra_apps_run_user "$bin" update; then
+    warn "Herdr-Update fehlgeschlagen."
+    return 1
+  fi
+  after="$(extra_apps_herdr_version || echo unbekannt)"
+  log "Herdr: vorher $before → nachher $after"
+}
+
+extra_apps_pi_bin() {
+  local c prefix
+  if [[ -x "$HOME/.local/bin/pi" ]]; then
+    echo "$HOME/.local/bin/pi"
+    return 0
+  fi
+  prefix="$(extra_apps_node_user_prefix)"
+  if [[ -x "$prefix/bin/pi" ]]; then
+    echo "$prefix/bin/pi"
+    return 0
+  fi
+  if have_cmd pi; then
+    command -v pi
+    return 0
+  fi
+  return 1
+}
+
+extra_apps_pi_detect() {
+  extra_apps_config_load
+  if [[ "${SKIP_PI:-0}" -eq 1 ]]; then
+    echo skipped
+    return 0
+  fi
+  if extra_apps_pi_bin >/dev/null; then
+    echo pi
+  else
+    echo none
+  fi
+}
+
+extra_apps_pi_version() {
+  local bin out
+  bin="$(extra_apps_pi_bin || true)"
+  [[ -n "$bin" ]] || return 1
+  out="$("$bin" --version 2>/dev/null | head -1 || true)"
+  out="${out//[$'\t\r\n']/}"
+  [[ -n "$out" ]] && echo "$out"
+}
+
+extra_apps_pi_pm_detect() {
+  local pm
+  extra_apps_config_load
+  if [[ -n "${PI_CLI_PM:-}" ]]; then
+    echo "$PI_CLI_PM"
+    return 0
+  fi
+  for pm in npm pnpm yarn; do
+    have_cmd "$pm" || continue
+    if "$pm" list -g --depth=0 2>/dev/null | grep -qiE 'pi-coding-agent|@earendil-works/pi'; then
+      echo "$pm"
+      return 0
+    fi
+  done
+  return 1
+}
+
+extra_apps_pi_pm_pick() {
+  local pm
+  extra_apps_config_load
+  [[ -n "${PI_CLI_PM:-}" ]] && { echo "$PI_CLI_PM"; return 0; }
+  pm="$(extra_apps_pi_pm_detect || true)"
+  [[ -n "$pm" ]] && { echo "$pm"; return 0; }
+  for pm in npm pnpm yarn; do
+    have_cmd "$pm" && { echo "$pm"; return 0; }
+  done
+  return 1
+}
+
+extra_apps_pi_run_pm_global() {
+  local pm="$1" pkg="$2"
+  local prefix rc=0
+  prefix="$(extra_apps_node_user_prepare)"
+  case "$pm" in
+    npm)
+      extra_apps_run_user env npm_config_prefix="$prefix" \
+        npm install --registry=https://registry.npmjs.org/ --progress=false --loglevel=error -g "$pkg" \
+        || rc=1
+      ;;
+    pnpm)
+      extra_apps_run_user env PNPM_HOME="$prefix" npm_config_prefix="$prefix" \
+        pnpm add --registry=https://registry.npmjs.org/ -g "$pkg" \
+        || rc=1
+      ;;
+    yarn)
+      extra_apps_run_user env npm_config_prefix="$prefix" \
+        YARN_REGISTRY=https://registry.npmjs.org/ yarn global add "$pkg" \
+        || rc=1
+      ;;
+    *)
+      warn "Unbekannter Paketmanager: $pm"
+      return 1
+      ;;
+  esac
+  [[ "$rc" -eq 0 ]]
+}
+
+extra_apps_pi_update() {
+  local pm before after
+  extra_apps_config_load
+  if [[ "${SKIP_PI:-0}" -eq 1 ]]; then
+    log "Pi: übersprungen (SKIP_PI=1)."
+    return 0
+  fi
+  if [[ "$(extra_apps_pi_detect)" == none ]]; then
+    log "Pi (pi-coding-agent) nicht installiert – übersprungen."
+    return 0
+  fi
+
+  before="$(extra_apps_pi_version || echo unbekannt)"
+  log "Pi: installiert $before ($PI_NPM_PKG)"
+
+  pm="$(extra_apps_pi_pm_pick)" || {
+    warn "Kein npm/pnpm/yarn gefunden – Pi kann nicht aktualisiert werden."
+    return 1
+  }
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] $pm install -g ${PI_NPM_PKG}@latest"
+    return 0
+  fi
+  if ! confirm "Pi ($PI_NPM_PKG) mit $pm aktualisieren?"; then
+    log "Pi-Update abgebrochen."
+    return 0
+  fi
+
+  extra_apps_config_set PI_CLI_PM "$pm"
+  log "Aktualisiere Pi ($pm) …"
+  if ! extra_apps_pi_run_pm_global "$pm" "${PI_NPM_PKG}@latest"; then
+    warn "Pi-Update fehlgeschlagen."
+    return 1
+  fi
+  after="$(extra_apps_pi_version || echo unbekannt)"
+  log "Pi: vorher $before → nachher $after"
+}
+
+extra_apps_firstmate_looks_like_root() {
+  local root="$1"
+  [[ -n "$root" && -d "$root" ]] || return 1
+  [[ -x "$root/bin/fm-update.sh" ]] || return 1
+  git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+extra_apps_firstmate_root() {
+  local cand cfg_home
+  # Env vor config_load sichern (leere Config-Zeilen überschreiben sonst die Umgebung)
+  local env_firstmate="${FIRSTMATE_HOME:-}"
+  local env_fm_home="${FM_HOME:-}"
+  local env_fm_root="${FM_ROOT:-}"
+  local env_firstmate_root="${FIRSTMATE_ROOT:-}"
+
+  extra_apps_config_load
+  cfg_home="${FIRSTMATE_HOME:-}"
+
+  # 1) Nicht-leerer Config-Override
+  if [[ -n "$cfg_home" ]] && extra_apps_firstmate_looks_like_root "$cfg_home"; then
+    echo "$cfg_home"
+    return 0
+  fi
+
+  # 2) Umgebungsvariablen (vor dem Sourcen der Config)
+  for cand in "$env_firstmate" "$env_fm_home" "$env_fm_root" "$env_firstmate_root"; do
+    [[ -n "$cand" ]] || continue
+    if extra_apps_firstmate_looks_like_root "$cand"; then
+      echo "$cand"
+      return 0
+    fi
+  done
+
+  # 3) Übliche Installationsorte
+  for cand in \
+    "$HOME/dtry-agent-workspace" \
+    "$HOME/firstmate" \
+    "$HOME/.local/share/firstmate" \
+    "$HOME/src/firstmate" \
+    "$HOME/code/firstmate"; do
+    if extra_apps_firstmate_looks_like_root "$cand"; then
+      echo "$cand"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+extra_apps_firstmate_detect() {
+  extra_apps_config_load
+  if [[ "${SKIP_FIRSTMATE:-0}" -eq 1 ]]; then
+    echo skipped
+    return 0
+  fi
+  if extra_apps_firstmate_root >/dev/null; then
+    echo firstmate
+  else
+    echo none
+  fi
+}
+
+extra_apps_firstmate_version() {
+  local root short branch dirty
+  root="$(extra_apps_firstmate_root || true)"
+  [[ -n "$root" ]] || return 1
+  short="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || true)"
+  [[ -n "$short" ]] || return 1
+  branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+  dirty=""
+  if [[ -n "$(git -C "$root" status --porcelain 2>/dev/null || true)" ]]; then
+    dirty=" dirty"
+  fi
+  echo "${short} (${branch}${dirty})"
+}
+
+extra_apps_firstmate_update() {
+  local root script before after rc=0
+  extra_apps_config_load
+  if [[ "${SKIP_FIRSTMATE:-0}" -eq 1 ]]; then
+    log "Firstmate: übersprungen (SKIP_FIRSTMATE=1)."
+    return 0
+  fi
+
+  root="$(extra_apps_firstmate_root || true)"
+  if [[ -z "$root" ]]; then
+    log "Firstmate-Root nicht gefunden – übersprungen."
+    log "Hinweis: FIRSTMATE_HOME in $EXTRA_APPS_CONFIG setzen oder FM_HOME exportieren."
+    return 0
+  fi
+
+  script="$root/bin/fm-update.sh"
+  if [[ ! -x "$script" ]]; then
+    warn "Firstmate-Update-Skript fehlt oder nicht ausführbar: $script"
+    return 1
+  fi
+
+  before="$(extra_apps_firstmate_version || echo unbekannt)"
+  log "Firstmate: $root – $before"
+  log "Update nur per Fast-Forward (fm-update.sh; kein force/stash)."
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "[dry-run] $script"
+    return 0
+  fi
+  if ! confirm "Firstmate aktualisieren (fm-update.sh, nur Fast-Forward)?"; then
+    log "Firstmate-Update abgebrochen."
+    return 0
+  fi
+
+  log "Aktualisiere Firstmate …"
+  # Ausgabe durchreichen, damit skip/dirty/diverged sichtbar bleibt
+  if ! extra_apps_run_user env FM_HOME="$root" FM_ROOT="$root" "$script"; then
+    rc=1
+    warn "Firstmate-Update meldete einen Fehler (siehe Ausgabe oben; dirty/diverged = übersprungen)."
+  fi
+  after="$(extra_apps_firstmate_version || echo unbekannt)"
+  log "Firstmate: vorher $before → nachher $after"
+  return "$rc"
+}
+
+extra_apps_agent_stack_update() {
+  # $1 install-flag reserved for API-Symmetrie zu cursor/bob (derzeit ungenutzt)
+  : "${1:-0}"
+  log "Agent-Stack: Herdr + Pi + Firstmate"
+  extra_apps_profile
+  log "Agent-Stack: Herdr=${HERDR_METHOD}, Pi=${PI_METHOD}, Firstmate=${FIRSTMATE_METHOD}${FIRSTMATE_ROOT:+ ($FIRSTMATE_ROOT)}"
+  extra_apps_herdr_update
+  extra_apps_pi_update
+  extra_apps_firstmate_update
 }
 
 extra_apps_status_line() {
   local label="$1" method="$2" detail="${3:-}"
   if [[ "$method" == none ]]; then
     echo "  $label: nicht installiert${detail:+ ($detail)}"
+  elif [[ "$method" == skipped ]]; then
+    echo "  $label: übersprungen (Konfiguration)${detail:+ ($detail)}"
   else
     echo "  $label: $method${detail:+ ($detail)}"
   fi
@@ -723,11 +1090,42 @@ extra_apps_status() {
   else
     extra_apps_status_line "IBM Bob CLI" "none"
   fi
+
+  echo
+  echo "── Agent-Stack (Herdr / Pi / Firstmate) ──"
+  if [[ "$HERDR_METHOD" == herdr ]]; then
+    ver="$(extra_apps_herdr_version || echo '?')"
+    path="$(extra_apps_herdr_bin || echo '?')"
+    extra_apps_status_line "Herdr" "herdr" "$ver – $path"
+  else
+    extra_apps_status_line "Herdr" "$HERDR_METHOD"
+  fi
+  if [[ "$PI_METHOD" == pi ]]; then
+    ver="$(extra_apps_pi_version || echo '?')"
+    extra_apps_status_line "Pi" "pi${PI_CLI_PM:+ ($PI_CLI_PM)}" "$ver – $PI_NPM_PKG"
+  else
+    extra_apps_status_line "Pi" "$PI_METHOD"
+  fi
+  if [[ "$FIRSTMATE_METHOD" == firstmate ]]; then
+    ver="$(extra_apps_firstmate_version || echo '?')"
+    path="${FIRSTMATE_ROOT:-$(extra_apps_firstmate_root || echo '?')}"
+    extra_apps_status_line "Firstmate" "firstmate" "$ver – $path"
+  else
+    extra_apps_status_line "Firstmate" "$FIRSTMATE_METHOD"
+  fi
+
   echo "  Konfiguration: $EXTRA_APPS_CONFIG"
 }
 
 extra_apps_update_after_packages() {
   extra_apps_config_load
-  [[ "${EXTRA_APPS_WITH_UPDATE:-1}" -eq 1 ]] || return 0
-  extra_apps_update_all 0
+  if [[ "${EXTRA_APPS_WITH_UPDATE:-1}" -eq 1 ]]; then
+    extra_apps_update_all 0
+  fi
+  if [[ "${AGENT_STACK_WITH_UPDATE:-0}" -eq 1 ]]; then
+    # Agent-Stack separat, falls EXTRA_APPS_WITH_UPDATE=0 oder AGENT_STACK_WITH_APPS=0
+    if [[ "${EXTRA_APPS_WITH_UPDATE:-1}" -ne 1 || "${AGENT_STACK_WITH_APPS:-0}" -ne 1 ]]; then
+      extra_apps_agent_stack_update 0
+    fi
+  fi
 }

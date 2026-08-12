@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Interaktives Hauptmenü
 
 menu_header() {
@@ -24,7 +25,7 @@ menu_show() {
   echo "  7) Cronjobs: Status / installieren / entfernen"
   echo "  8) Installation / Update / Deinstallation"
   echo "  9) Hilfe"
-  echo " 10) Cursor IDE / IBM Bob"
+  echo " 10) Zusatz-Apps (Cursor, Bob, Agent-Stack)"
   echo "  0) Beenden"
   echo
 }
@@ -59,24 +60,42 @@ menu_cron_sub() {
 menu_apps_sub() {
   while true; do
     menu_header
-    echo "── Cursor IDE / IBM Bob ──"
+    echo "── Zusatz-Anwendungen ──"
     extra_apps_status
     echo
     echo "  1) Cursor aktualisieren (IDE + CLI)"
     echo "  2) IBM Bob aktualisieren (IDE + CLI)"
-    echo "  3) Alles aktualisieren"
-    echo "  4) Cursor CLI installieren"
-    echo "  5) IBM Bob CLI installieren"
-    echo "  6) Zurück"
+    echo "  3) Agent-Stack aktualisieren (Herdr + Pi + Firstmate)"
+    echo "  4) Cursor + Bob aktualisieren"
+    echo "  5) Alles aktualisieren (Cursor + Bob + Agent-Stack)"
+    echo "  6) Nur Herdr aktualisieren"
+    echo "  7) Nur Pi aktualisieren"
+    echo "  8) Nur Firstmate aktualisieren"
+    echo "  9) Cursor CLI installieren"
+    echo " 10) IBM Bob CLI installieren"
+    echo " 11) Zurück"
     echo
     read -r -p "Auswahl: " c
     case "${c:-}" in
       1) extra_apps_cursor_update 0; pause_menu ;;
       2) extra_apps_bob_update 0; pause_menu ;;
-      3) extra_apps_update_all 0; pause_menu ;;
-      4) extra_apps_cursor_cli_install; pause_menu ;;
-      5) extra_apps_bob_cli_install; pause_menu ;;
-      6) return ;;
+      3) extra_apps_agent_stack_update 0; pause_menu ;;
+      4) extra_apps_update_all 0; pause_menu ;;
+      5)
+        extra_apps_update_all 0
+        # Agent-Stack auch wenn AGENT_STACK_WITH_APPS=0 (explizite Menüwahl)
+        extra_apps_config_load
+        if [[ "${AGENT_STACK_WITH_APPS:-0}" -ne 1 ]]; then
+          extra_apps_agent_stack_update 0
+        fi
+        pause_menu
+        ;;
+      6) extra_apps_herdr_update; pause_menu ;;
+      7) extra_apps_pi_update; pause_menu ;;
+      8) extra_apps_firstmate_update; pause_menu ;;
+      9) extra_apps_cursor_cli_install; pause_menu ;;
+      10) extra_apps_bob_cli_install; pause_menu ;;
+      11) return ;;
       *) warn "Ungültige Auswahl."; sleep 1 ;;
     esac
   done

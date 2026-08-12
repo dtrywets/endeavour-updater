@@ -69,7 +69,12 @@ Einzelaktionen (Skripte / manuell):
   endeavour-updater --cursor-cli          Nur Cursor CLI (Agent)
   endeavour-updater --ibm-bob             IBM Bob IDE + CLI aktualisieren
   endeavour-updater --ibm-bob-cli         Nur IBM Bob CLI (bob)
-  endeavour-updater --apps                Alles (Cursor + Bob, IDE + CLI)
+  endeavour-updater --apps                Cursor + Bob (IDE + CLI); Agent-Stack optional via Config
+  endeavour-updater --agent-stack         Agent-Stack: Herdr + Pi + Firstmate
+  endeavour-updater --herdr-pi-firstmate  Alias für --agent-stack
+  endeavour-updater --herdr               Nur Herdr (herdr update)
+  endeavour-updater --pi                  Nur Pi (@earendil-works/pi-coding-agent)
+  endeavour-updater --firstmate           Nur Firstmate (fm-update.sh, Fast-Forward)
   endeavour-updater --install-cursor-cli  Cursor CLI installieren
   endeavour-updater --install-bob-cli      IBM Bob CLI installieren
 
@@ -124,6 +129,10 @@ parse_args() {
       --ibm-bob)     MODE=ibm-bob ;;
       --ibm-bob-cli) MODE=ibm-bob-cli ;;
       --apps)        MODE=apps ;;
+      --agent-stack|--herdr-pi-firstmate) MODE=agent-stack ;;
+      --herdr)       MODE=herdr ;;
+      --pi)          MODE=pi ;;
+      --firstmate)   MODE=firstmate ;;
       --install-cursor-cli) MODE=install-cursor-cli ;;
       --install-bob-cli)    MODE=install-bob-cli ;;
       -y|--yes)      YES=1; NONINTERACTIVE=1 ;;
@@ -219,6 +228,18 @@ run_mode() {
       ;;
     apps)
       extra_apps_update_all 0
+      ;;
+    agent-stack)
+      extra_apps_agent_stack_update 0
+      ;;
+    herdr)
+      extra_apps_herdr_update
+      ;;
+    pi)
+      extra_apps_pi_update
+      ;;
+    firstmate)
+      extra_apps_firstmate_update
       ;;
     install-cursor-cli)
       extra_apps_cursor_cli_install

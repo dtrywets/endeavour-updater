@@ -243,4 +243,7 @@ maintain_interactive_full() {
   if confirm "Cursor IDE und IBM Bob aktualisieren?"; then
     extra_apps_update_all 0
   fi
+  if confirm "Agent-Stack aktualisieren (Herdr + Pi + Firstmate)?"; then
+    extra_apps_agent_stack_update 0
+  fi
 }

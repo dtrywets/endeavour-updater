@@ -1,6 +1,6 @@
 # endeavour-updater
 
-Wartungsskript für **Arch Linux** und **EndeavourOS** — interaktives Menü, Cronjobs und CLI für Updates, Aufräumen und Sonderfälle (AUR, Cursor, IBM Bob, iacs).
+Wartungsskript für **Arch Linux** und **EndeavourOS** — interaktives Menü, Cronjobs und CLI für Updates, Aufräumen und Sonderfälle (AUR, Cursor, IBM Bob, Agent-Stack, iacs).
 
 Orientierung am [EndeavourOS Maintenance Guide](https://forum.endeavouros.com/t/a-complete-idiots-guide-to-endeavour-os-maintenance-update-upgrade/25184).
 
@@ -26,6 +26,7 @@ Orientierung am [EndeavourOS Maintenance Guide](https://forum.endeavouros.com/t/
 - Cronjobs für wöchentliche und monatliche Wartung
 - AUR-Paket `iacs` mit manueller IBM-Quelldatei
 - Cursor IDE/CLI und IBM Bob IDE/CLI — Erkennung und passendes Update
+- Agent-Stack (Herdr + Pi + Firstmate) — Erkennung und sicheres Update
 - Portable Nutzung aus dem Git-Clone oder Installation nach `~/.local`
 
 ## Voraussetzungen
@@ -40,7 +41,7 @@ Orientierung am [EndeavourOS Maintenance Guide](https://forum.endeavouros.com/t/
 | `cronie` | Cronjobs (wird bei `--install` optional mit eingerichtet) |
 | `curl` | Cursor AppImage / CLI |
 | `meld` | Interaktives `pacdiff` |
-| `node` + `npm`/`pnpm`/`yarn` | IBM Bob CLI |
+| `node` + `npm`/`pnpm`/`yarn` | IBM Bob CLI, Pi CLI |
 
 ## Installation
 
@@ -116,7 +117,7 @@ endeavour-updater --help
 | 7 | Cronjobs |
 | 8 | Installation / Update / Deinstallation |
 | 9 | Hilfe |
-| 10 | Cursor IDE/CLI und IBM Bob |
+| 10 | Zusatz-Apps (Cursor, Bob, Agent-Stack) |
 
 ### Kommandozeile
 
@@ -138,7 +139,12 @@ endeavour-updater --cursor              # Cursor IDE + CLI (nur installiertes)
 endeavour-updater --cursor-cli          # nur Cursor CLI
 endeavour-updater --ibm-bob             # IBM Bob IDE + CLI
 endeavour-updater --ibm-bob-cli         # nur Bob CLI
-endeavour-updater --apps                # alles Erkannte
+endeavour-updater --apps                # Cursor + Bob (Agent-Stack optional via Config)
+endeavour-updater --agent-stack         # Herdr + Pi + Firstmate
+endeavour-updater --herdr-pi-firstmate  # Alias für --agent-stack
+endeavour-updater --herdr               # nur Herdr
+endeavour-updater --pi                  # nur Pi (pi-coding-agent)
+endeavour-updater --firstmate           # nur Firstmate (Fast-Forward)
 endeavour-updater --install-cursor-cli  # Cursor CLI installieren
 endeavour-updater --install-bob-cli     # Bob CLI installieren
 ```
@@ -157,7 +163,7 @@ Bei `--install` und `--cron-install` wird standardmäßig `cronie` installiert u
 
 | Aufgabe | Zeitplan | Inhalt |
 |---------|----------|--------|
-| `update` | So 06:00 | `yay -Syu` / pacman, Cursor/Bob, `.pacnew`-Hinweis |
+| `update` | So 06:00 | `yay -Syu` / pacman, Cursor/Bob (Agent-Stack optional), `.pacnew`-Hinweis |
 | `monthly` | 1. des Monats 07:00 | Spiegel, `-Syyu`, Journal, Cache |
 
 Cron verwalten:
@@ -193,7 +199,7 @@ Alle Dateien unter `~/.config/endeavour-updater/`:
 |-------|--------|
 | `install.conf` | Installationspfade (nach `--install`) |
 | `orphan-protect` | Pakete, die bei Waisen-Bereinigung nie entfernt werden |
-| `extra-apps.conf` | Cursor AppImage-Pfad, Version, Bob IDE/CLI, Cron-Integration |
+| `extra-apps.conf` | Cursor, Bob, Agent-Stack, Cron-/Apps-Integration |
 | `aur-sources/iacs/` | IBM-ZIP für AUR-Paket `iacs` |
 | `logs/` | Cron- und Laufzeit-Logs |
 
@@ -204,6 +210,19 @@ Alle Dateien unter `~/.config/endeavour-updater/`:
 ```bash
 # in extra-apps.conf
 EXTRA_APPS_WITH_UPDATE=0
+```
+
+**Agent-Stack optional mitziehen** (Standard: aus — nur Menü / `--agent-stack`):
+
+```bash
+# in extra-apps.conf
+AGENT_STACK_WITH_UPDATE=1   # bei --update / Cron
+AGENT_STACK_WITH_APPS=1     # bei --apps zusätzlich zu Cursor/Bob
+FIRSTMATE_HOME=/pfad/zu/firstmate
+SKIP_HERDR=0
+SKIP_PI=0
+SKIP_FIRSTMATE=0
+PI_CLI_PM=                  # npm|pnpm|yarn, leer = auto
 ```
 
 ## Sonderfälle
@@ -247,6 +266,30 @@ Nach dem ersten Update übernimmt der Updater das automatisch.
 - Schreibrechte auf `~/.local/lib` fehlen? Der Updater bietet `sudo chown` an oder nutzt `~/.config/endeavour-updater/npm` als Fallback.
 - Migration von Upstream-Bob zu `ibm-bob-bin` entfernt ggf. das alte Paket `bobide` (Pacman-Konflikt).
 
+### Agent-Stack (Herdr + Pi + Firstmate)
+
+Menüpfad: **10 → Zusatz-Apps** → Einträge 3 / 5–8.
+
+| Komponente | Erkennung | Update |
+|------------|-----------|--------|
+| Herdr | `~/.local/bin/herdr` oder `herdr` in `PATH` | `herdr update` (als Benutzer, nicht root) |
+| Pi | `pi` / `@earendil-works/pi-coding-agent` (npm/pnpm/yarn global) | globales Paket-Update auf `@latest` |
+| Firstmate | `FIRSTMATE_HOME` / `FM_HOME` / `FM_ROOT`, Config, oder `~/dtry-agent-workspace` (+ `bin/fm-update.sh`) | `bin/fm-update.sh` — **nur Fast-Forward**, nie force/stash |
+
+```bash
+endeavour-updater --agent-stack -y    # alle erkannten Komponenten
+endeavour-updater --herdr -y
+endeavour-updater --pi -y
+endeavour-updater --firstmate -y
+```
+
+**Hinweise Agent-Stack**
+
+- Firstmate bei dirty/diverged Working Tree: `fm-update.sh` meldet Skip-Gründe und bricht nicht mit Force durch.
+- Herdr-Versionen werden vor und nach dem Update angezeigt.
+- Pi nutzt denselben npm-User-Prefix wie Bob CLI (`~/.local` bzw. `NPM_CONFIG_PREFIX`).
+- Standard: Agent-Stack **nicht** in `--update` / Cron / `--apps` — nur über Menü oder `--agent-stack`. Optional: `AGENT_STACK_WITH_UPDATE=1` / `AGENT_STACK_WITH_APPS=1`.
+
 ## Projektstruktur
 
 ```
@@ -259,7 +302,7 @@ endeavour-updater/
     ├── install.sh         # Installation / Deinstallation
     ├── menu.sh            # Interaktives Menü
     ├── aur_sources.sh     # iacs / manuelle AUR-Quellen
-    └── extra_apps.sh      # Cursor & IBM Bob
+    └── extra_apps.sh      # Cursor, IBM Bob, Agent-Stack
 ```
 
 ## Portable vs. installiert
